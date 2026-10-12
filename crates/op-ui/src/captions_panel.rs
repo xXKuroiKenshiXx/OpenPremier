@@ -85,6 +85,31 @@ fn body(s: &mut State, ui: &mut Ui) {
         .copied()
         .filter(|id| s.ed.selection.clips.contains(id))
         .collect();
+    let mut structure_changed = false;
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .add_enabled(
+                selected.len() == 1,
+                egui::Button::new(t("Split at Playhead")),
+            )
+            .on_hover_text(t("Split a caption between words at the playhead"))
+            .clicked()
+        {
+            structure_changed |= s.ed.split_caption_at_playhead();
+        }
+        if ui
+            .add_enabled(selected.len() >= 2, egui::Button::new(t("Merge Selected")))
+            .on_hover_text(t("Merge touching captions with the same style"))
+            .clicked()
+        {
+            structure_changed |= s.ed.merge_selected_captions();
+        }
+    });
+    // Rebuild the list next frame after a structural edit, before applying stale style targets.
+    if structure_changed {
+        ui.ctx().request_repaint();
+        return;
+    }
     // style changes go to the selected captions when there are some, else to all of them
     ui.horizontal(|ui| {
         ui.label(t("Apply to"));
@@ -392,7 +417,7 @@ fn caption_list(s: &mut State, ui: &mut Ui, all: &[ClipId], scroll: bool) {
     );
     // every caption: start time and text, editable; clicking the time selects the caption and
     // moves the playhead to it
-    let rows: Vec<(ClipId, SeqTime, String)> =
+    let rows: Vec<(ClipId, SeqTime, SeqTime, String)> =
         s.ed.active_seq()
             .map(|q| {
                 all.iter()
@@ -405,14 +430,14 @@ fn caption_list(s: &mut State, ui: &mut Ui, all: &[ClipId], scroll: bool) {
                                 _ => None,
                             })
                             .unwrap_or_default();
-                        (c.id, c.start, text)
+                        (c.id, c.start, c.end(), text)
                     })
                     .collect()
             })
             .unwrap_or_default();
     let (format, offset) = s.timecode(Monitor::Program);
     let rows_ui = |ui: &mut Ui| {
-        for (id, start, text) in rows {
+        for (id, start, end, text) in rows {
             let sel = s.ed.selection.clips.contains(&id);
             ui.horizontal(|ui| {
                 let tc = format.format(start - SeqTime::ZERO + offset);
@@ -436,6 +461,7 @@ fn caption_list(s: &mut State, ui: &mut Ui, all: &[ClipId], scroll: bool) {
                     }
                     s.ed.set_playhead(start);
                 }
+                caption_time_editor(s, ui, id, start, end);
                 let mut edited = text.clone();
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut edited)
@@ -463,4 +489,56 @@ fn caption_list(s: &mut State, ui: &mut Ui, all: &[ClipId], scroll: bool) {
     } else {
         rows_ui(ui);
     }
+}
+
+#[derive(Clone)]
+struct CaptionTimesDraft {
+    original: (SeqTime, SeqTime),
+    start: String,
+    end: String,
+}
+
+/// Explicit Apply keeps a boundary edit in one undo transaction and retains invalid input
+/// while the editor reports why it cannot commit (for example, cutting a spoken word).
+fn caption_time_editor(s: &mut State, ui: &mut Ui, id: ClipId, start: SeqTime, end: SeqTime) {
+    let key = egui::Id::new(("caption-times-draft", id.0));
+    ui.menu_button(t("Times..."), |ui| {
+        let mut draft = ui
+            .data_mut(|data| data.get_temp::<CaptionTimesDraft>(key))
+            .filter(|draft| draft.original == (start, end))
+            .unwrap_or_else(|| CaptionTimesDraft {
+                original: (start, end),
+                start: start.seconds().to_string(),
+                end: end.seconds().to_string(),
+            });
+        ui.label(t("Sequence times in seconds"));
+        egui::Grid::new(("caption-times-fields", id.0)).show(ui, |ui| {
+            ui.label(t("Start"));
+            ui.add(egui::TextEdit::singleline(&mut draft.start).desired_width(110.0));
+            ui.end_row();
+            ui.label(t("End"));
+            ui.add(egui::TextEdit::singleline(&mut draft.end).desired_width(110.0));
+            ui.end_row();
+        });
+        if ui.button(t("Apply Times")).clicked() {
+            let seconds = |text: &str| {
+                text.trim().parse::<f64>().ok().filter(|value| {
+                    value.is_finite() && *value >= 0.0 && *value <= SeqTime::MAX.seconds()
+                })
+            };
+            match (seconds(&draft.start), seconds(&draft.end)) {
+                (Some(a), Some(b)) => {
+                    if s.ed.set_caption_bounds(
+                        id,
+                        SeqTime::from_seconds(a),
+                        SeqTime::from_seconds(b),
+                    ) {
+                        ui.close();
+                    }
+                }
+                _ => s.ed.error(t("Enter finite nonnegative times in seconds")),
+            }
+        }
+        ui.data_mut(|data| data.insert_temp(key, draft));
+    });
 }

@@ -13,7 +13,7 @@ use op_core::*;
 use parking_lot::Mutex;
 
 use crate::device::{Output, PlayedCounter};
-use crate::mixer::{AudioSource, Meters, Mixer};
+use crate::mixer::{AudioSource, Meters, Mixer, convert_channels};
 
 const BLOCK: usize = 512;
 
@@ -101,7 +101,7 @@ impl Playback {
                 let mut sequence = SequenceId(0);
                 let mut next = SeqTime::ZERO;
                 let mut speed = 1.0;
-                let mut stereo = vec![0f32; BLOCK * 2];
+                let mut master = vec![0f32; BLOCK * mixer.channels];
                 let mut device = vec![0f32; BLOCK * out.channels];
                 loop {
                     let playing = sh.playing.load(Ordering::Acquire);
@@ -118,6 +118,8 @@ impl Playback {
                             speed: sp,
                         }) => {
                             out.flush();
+                            configure_master(&mut mixer, &p, s);
+                            master.resize(BLOCK * mixer.channels, 0.0);
                             mixer.reset();
                             project = Some(p);
                             sequence = s;
@@ -132,7 +134,16 @@ impl Playback {
                             sh.playing.store(true, Ordering::Release);
                             sh.starting.store(false, Ordering::Release);
                         }
-                        Ok(Cmd::Update(p)) => project = Some(p),
+                        Ok(Cmd::Update(p)) => {
+                            let previous_channels = mixer.channels;
+                            configure_master(&mut mixer, &p, sequence);
+                            if previous_channels != mixer.channels {
+                                // Queued samples already use the fixed device layout. Keep them
+                                // and the playback clock aligned while future blocks use the new master.
+                                master.resize(BLOCK * mixer.channels, 0.0);
+                            }
+                            project = Some(p);
+                        }
                         Ok(Cmd::Stop) => {
                             sh.playing.store(false, Ordering::Release);
                             out.flush();
@@ -147,7 +158,9 @@ impl Playback {
                                 out.flush();
                                 let frames = ((len.seconds() * out.rate as f64) as usize)
                                     .clamp(1, out.rate as usize / 4);
-                                let mut buf = vec![0f32; frames * 2];
+                                configure_master(&mut mixer, &p, s);
+                                let channels = mixer.channels;
+                                let mut buf = vec![0f32; frames * channels];
                                 mixer.reset();
                                 let mixed =
                                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -162,14 +175,14 @@ impl Playback {
                                 let fade = frames.min(64);
                                 for i in 0..fade {
                                     let g = i as f32 / fade as f32;
-                                    buf[i * 2] *= g;
-                                    buf[i * 2 + 1] *= g;
                                     let j = frames - 1 - i;
-                                    buf[j * 2] *= g;
-                                    buf[j * 2 + 1] *= g;
+                                    for channel in 0..channels {
+                                        buf[i * channels + channel] *= g;
+                                        buf[j * channels + channel] *= g;
+                                    }
                                 }
                                 let mut dev = vec![0f32; frames * out.channels];
-                                to_device(&buf, &mut dev, out.channels);
+                                to_device(&buf, channels, &mut dev, out.channels);
                                 out.write(&dev);
                             }
                         }
@@ -185,17 +198,17 @@ impl Playback {
                             // a failure while mixing one block plays silence, never stops the engine
                             let mixed =
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    mixer.render(p, sequence, next, speed, &mut stereo, &*source)
+                                    mixer.render(p, sequence, next, speed, &mut master, &*source)
                                 }));
                             if mixed.is_err() {
                                 log::error!(
                                     "audio mixing failed at {:.3} s; muted this block",
                                     next.seconds()
                                 );
-                                stereo.fill(0.0);
+                                master.fill(0.0);
                                 mixer.reset();
                             }
-                            to_device(&stereo, &mut device, out.channels);
+                            to_device(&master, mixer.channels, &mut device, out.channels);
                             out.write(&device);
                             next += Dur::from_seconds(BLOCK as f64 * speed / out.rate as f64);
                         }
@@ -282,23 +295,22 @@ impl Drop for Playback {
     }
 }
 
-fn to_device(stereo: &[f32], out: &mut [f32], channels: usize) {
-    let frames = stereo.len() / 2;
-    match channels {
-        1 => {
-            for i in 0..frames {
-                out[i] = (stereo[i * 2] + stereo[i * 2 + 1]) * 0.5;
-            }
-        }
-        2 => out[..frames * 2].copy_from_slice(&stereo[..frames * 2]),
-        n => {
-            out.fill(0.0);
-            for i in 0..frames {
-                out[i * n] = stereo[i * 2];
-                out[i * n + 1] = stereo[i * 2 + 1];
-            }
-        }
+fn configure_master(mixer: &mut Mixer, project: &Project, sequence: SequenceId) {
+    let channels = project
+        .sequence(sequence)
+        .map(|s| s.settings.master.channels())
+        .unwrap_or(2);
+    if mixer.channels != channels {
+        mixer.channels = channels;
+        mixer.reset();
+        let _ = mixer.meters.take_master(8);
     }
+}
+
+/// Adapt the already mixed sequence master to the default device's channel count. Six-channel
+/// devices are assumed to use the canonical L R C LFE Ls Rs order; no speaker-map API is exposed.
+fn to_device(master: &[f32], master_channels: usize, out: &mut [f32], device_channels: usize) {
+    convert_channels(master, master_channels, out, device_channels);
 }
 
 /// Mixes a whole range offline (export): interleaved samples at `rate` with `channels`.
@@ -323,5 +335,46 @@ pub fn render_range(
             return;
         }
         done += n;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn device_adaptation_preserves_six_channels_or_explicitly_downmixes() {
+        let k = std::f32::consts::FRAC_1_SQRT_2;
+        for source_channel in 0..6 {
+            let mut master = [0.0; 6];
+            master[source_channel] = 0.5;
+            let stereo = match source_channel {
+                0 => [0.5, 0.0],
+                1 => [0.0, 0.5],
+                2 => [0.5 * k; 2],
+                3 => [0.0; 2],
+                4 => [0.5 * k, 0.0],
+                5 => [0.0, 0.5 * k],
+                _ => unreachable!(),
+            };
+            for channels in [1, 2, 4, 6, 8] {
+                let mut device = vec![99.0; channels];
+                to_device(&master, 6, &mut device, channels);
+                if channels == 6 {
+                    assert_eq!(device, master);
+                } else if channels == 1 {
+                    assert_eq!(device, vec![(stereo[0] + stereo[1]) * 0.5]);
+                } else {
+                    assert_eq!(&device[..2], &stereo);
+                    assert!(device[2..].iter().all(|v| *v == 0.0));
+                }
+            }
+        }
+        let mut mono = [0.0];
+        to_device(&[0.25, 0.75], 2, &mut mono, 1);
+        assert_eq!(mono, [0.5]);
+        let mut surround = [0.0; 6];
+        to_device(&[0.5], 1, &mut surround, 6);
+        assert_eq!(surround, [0.5, 0.5, 0.0, 0.0, 0.0, 0.0]);
     }
 }

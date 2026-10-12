@@ -2,6 +2,7 @@
 
 mod deps;
 mod dist;
+mod legal;
 mod linux;
 mod macos;
 mod release;
@@ -24,6 +25,9 @@ cargo xtask <task>
                       Windows: OpenPremier-<version>-windows-x64.zip
                       Linux:   OpenPremier-<version>-x86_64.AppImage
   appimage          the Linux AppImage (on Windows, through the WSL build distro)
+  license-audit     retain dependency notices and produce exact crate source inventory
+  legal-check       validate the distribution review before publishing
+  sources           snapshot exact application sources and dependency source inventory
   release <version> check, tag and publish a GitHub release with the packages (asks first)
 ";
 
@@ -35,6 +39,11 @@ fn configured_cargo(args: &[&str]) -> Result<Command> {
     let mut cmd = cargo();
     cmd.current_dir(util::root()).args(args);
     deps::configure(&mut cmd)?;
+    if cfg!(windows) && args.iter().any(|a| a.contains("fframes-worker")) {
+        // Published rust-skia Windows binaries use the dynamic MSVC runtime.
+        // This override belongs to the isolated worker; the editor stays static.
+        cmd.env("RUSTFLAGS", "-C target-feature=-crt-static");
+    }
     Ok(cmd)
 }
 
@@ -81,6 +90,9 @@ fn main() {
             configured_cargo(&refs).and_then(|mut c| util::run(&mut c))
         }
         "dist" => dist::dist(&rest),
+        "license-audit" => legal::audit(),
+        "legal-check" => legal::check_release(),
+        "sources" => legal::source_archive().map(|_| ()),
         "appimage" => linux::appimage_task(),
         "linux-inside" => linux::inside(&rest),
         "release" => release::release(&rest),

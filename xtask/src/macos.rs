@@ -14,6 +14,7 @@ pub fn package() -> Result<PathBuf> {
     use std::process::Command;
 
     crate::dist::release_build()?;
+    let worker = crate::dist::worker_build()?;
     let version = util::version()?;
     let arch = match std::env::consts::ARCH {
         "aarch64" => "arm64",
@@ -31,6 +32,8 @@ pub fn package() -> Result<PathBuf> {
     }
     let exe = contents.join("MacOS").join(util::APP_NAME);
     fs::copy(util::root().join("target/release").join(util::BIN), &exe)?;
+    let worker_exe = contents.join("MacOS/OpenPremier-FFrames");
+    fs::copy(worker, &worker_exe)?;
     fs::write(contents.join("Info.plist"), info_plist(&version))?;
 
     // icon: an iconset from the generated PNG sizes
@@ -67,6 +70,8 @@ pub fn package() -> Result<PathBuf> {
         Command::new("dylibbundler")
             .args(["-od", "-b", "-cd", "-ns", "-x"])
             .arg(&exe)
+            .arg("-x")
+            .arg(&worker_exe)
             .arg("-d")
             .arg(contents.join("Frameworks"))
             .args(["-p", "@executable_path/../Frameworks/"]),
@@ -78,6 +83,14 @@ pub fn package() -> Result<PathBuf> {
     )?;
     crate::dist::write_docs(&stage, "macos")?;
     crate::dist::self_test(&exe)?;
+    for float in [false, true] {
+        let mut test = Command::new(&worker_exe);
+        test.args(["--self-test", "--backend", "cpu"]);
+        if float {
+            test.arg("--float-layers");
+        }
+        util::run(&mut test)?;
+    }
 
     // the disk image shows the app next to a link to Applications
     std::os::unix::fs::symlink("/Applications", stage.join("Applications"))?;

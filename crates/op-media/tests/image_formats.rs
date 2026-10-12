@@ -8,6 +8,7 @@ use op_media::video::VideoDecoder;
 fn picture_formats_are_stills_and_decode() {
     let dir = std::path::PathBuf::from(std::env::var("OP_IMG_DIR").unwrap());
     let mut failed = Vec::new();
+    let mut inspected = 0;
     for e in std::fs::read_dir(&dir).unwrap().flatten() {
         let p = e.path();
         let ext = p
@@ -20,6 +21,7 @@ fn picture_formats_are_stills_and_decode() {
         {
             continue;
         }
+        inspected += 1;
         let result = op_media::probe(&p)
             .map_err(|e| e.to_string())
             .and_then(|a| {
@@ -37,5 +39,7 @@ fn picture_formats_are_stills_and_decode() {
             failed.push(ext);
         }
     }
+    assert!(inspected > 0, "No supported image fixtures were inspected");
+    eprintln!("Inspected {inspected} supported image fixtures");
     assert!(failed.is_empty(), "{failed:?}");
 }

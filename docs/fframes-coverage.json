@@ -1,0 +1,1291 @@
+{
+  "fframes": "1.2.0",
+  "skia": "0.153.3",
+  "scope": "Independent SVG subset and explicit RGBA16F hybrid compatibility for CPU/GPU exports and async previews; hybrid support reuses native effects, not SkSL ports",
+  "video_catalog": [
+    {
+      "id": "op.video.manga_camera",
+      "name": "Manga Camera 3D",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.parallax",
+      "name": "Parallax",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.manga_frame",
+      "name": "Manga Frame and Vignette",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.dialogue_occlusion",
+      "name": "Dialogue Occlusion",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.page_turn",
+      "name": "Page Turn",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.fixed.motion",
+      "name": "Motion",
+      "kind": "VideoFixed",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.fixed.opacity",
+      "name": "Opacity",
+      "kind": "VideoFixed",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.graphic.text",
+      "name": "Text",
+      "kind": "Graphic",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.graphic.caption",
+      "name": "Caption",
+      "kind": "Graphic",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.graphic.shape",
+      "name": "Shape",
+      "kind": "Graphic",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.video.brightness_contrast",
+      "name": "Brightness & Contrast",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.procamp",
+      "name": "ProcAmp",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.levels",
+      "name": "Levels",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.channel_mixer",
+      "name": "Channel Mixer",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.extract",
+      "name": "Extract",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.gaussian_blur",
+      "name": "Gaussian Blur",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.directional_blur",
+      "name": "Directional Blur",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.sharpen",
+      "name": "Sharpen",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.unsharp_mask",
+      "name": "Unsharp Mask",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.invert",
+      "name": "Invert",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.lumetri",
+      "name": "Lumetri Color",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.color_nodes",
+      "name": "Color Nodes",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.tint",
+      "name": "Tint",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.black_white",
+      "name": "Black & White",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.color_balance",
+      "name": "Color Balance",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.leave_color",
+      "name": "Leave Color",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.transform",
+      "name": "Transform",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.mirror",
+      "name": "Mirror",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.corner_pin",
+      "name": "Corner Pin",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.offset",
+      "name": "Offset",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.spherize",
+      "name": "Spherize",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.twirl",
+      "name": "Twirl",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.wave_warp",
+      "name": "Wave Warp",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.ramp",
+      "name": "Ramp",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.gamma",
+      "name": "Gamma Correction",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.color_replace",
+      "name": "Color Replace",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.ultra_key",
+      "name": "Ultra Key",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.color_key",
+      "name": "Color Key",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.luma_key",
+      "name": "Luma Key",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.track_matte",
+      "name": "Track Matte Key",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.noise",
+      "name": "Noise",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.stock_grain",
+      "name": "Film Stock Grain",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.sensor_noise",
+      "name": "Sensor Noise",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.salt_pepper",
+      "name": "Salt & Pepper Noise",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.tv_static",
+      "name": "TV Static",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.fractal_noise",
+      "name": "Fractal Noise",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.film_dust",
+      "name": "Dust & Scratches",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.film_emulation",
+      "name": "Film Emulation",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.bleach_bypass",
+      "name": "Bleach Bypass",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.split_tone",
+      "name": "Cinematic Split Tone",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.gate_weave",
+      "name": "Gate Weave",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.pro_mist",
+      "name": "Pro-Mist Diffusion",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.anamorphic_streaks",
+      "name": "Anamorphic Streaks",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.chromatic_aberration",
+      "name": "Chromatic Aberration",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.super_8",
+      "name": "Super 8 Film",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.drop_shadow",
+      "name": "Drop Shadow",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.basic_3d",
+      "name": "Basic 3D",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.mosaic",
+      "name": "Mosaic",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.posterize",
+      "name": "Posterize",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.find_edges",
+      "name": "Find Edges",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.emboss",
+      "name": "Emboss",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.solarize",
+      "name": "Solarize",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.replicate",
+      "name": "Replicate",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.threshold",
+      "name": "Threshold",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.posterize_time",
+      "name": "Posterize Time",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.crop",
+      "name": "Crop",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.horizontal_flip",
+      "name": "Horizontal Flip",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.vertical_flip",
+      "name": "Vertical Flip",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.edge_feather",
+      "name": "Edge Feather",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.linear_wipe",
+      "name": "Linear Wipe",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.radial_wipe",
+      "name": "Radial Wipe",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.timecode",
+      "name": "Timecode",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.glow",
+      "name": "Glow",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.radiant_glow",
+      "name": "Radiant Glow",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.rgb_split",
+      "name": "RGB Split",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.camera_shake",
+      "name": "Camera Shake",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.glitch",
+      "name": "Digital Glitch",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.film_grain",
+      "name": "Film Grain",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.vignette",
+      "name": "Vignette",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.halftone",
+      "name": "Halftone",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.duotone",
+      "name": "Duotone",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.oil_paint",
+      "name": "Oil Paint",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.pencil_sketch",
+      "name": "Pencil Sketch",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.neon_edges",
+      "name": "Neon Edges",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.halation",
+      "name": "Halation",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.lens_flare",
+      "name": "Lens Flare",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.ripple",
+      "name": "Ripple",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.zoom_pulse",
+      "name": "Zoom Pulse",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.crt",
+      "name": "CRT Screen",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.letterbox",
+      "name": "Cinematic Bars",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.lens_distortion",
+      "name": "Lens Distortion",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.radial_blur",
+      "name": "Radial Blur",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.motion_tile",
+      "name": "Motion Tile",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.light_leaks",
+      "name": "Light Leaks",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.old_film",
+      "name": "Old Film",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.vhs",
+      "name": "VHS Tape",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.strobe",
+      "name": "Strobe Light",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.video.kaleidoscope",
+      "name": "Kaleidoscope",
+      "kind": "VideoEffect",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.cross_dissolve",
+      "name": "Cross Dissolve",
+      "kind": "VideoTransition",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.tr.dip_to_black",
+      "name": "Dip to Black",
+      "kind": "VideoTransition",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.tr.dip_to_white",
+      "name": "Dip to White",
+      "kind": "VideoTransition",
+      "supported": true,
+      "hybrid_supported": true,
+      "implementation": "independent SVG subset or shared preparation"
+    },
+    {
+      "id": "op.tr.film_dissolve",
+      "name": "Film Dissolve",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.additive_dissolve",
+      "name": "Additive Dissolve",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.non_additive_dissolve",
+      "name": "Non-Additive Dissolve",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.iris_round",
+      "name": "Iris Round",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.iris_box",
+      "name": "Iris Box",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.iris_cross",
+      "name": "Iris Cross",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.iris_diamond",
+      "name": "Iris Diamond",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.push",
+      "name": "Push",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.slide",
+      "name": "Slide",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.split",
+      "name": "Split",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.whip",
+      "name": "Whip",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.center_split",
+      "name": "Center Split",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.wipe",
+      "name": "Wipe",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.barn_doors",
+      "name": "Barn Doors",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.clock_wipe",
+      "name": "Clock Wipe",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.radial_wipe",
+      "name": "Radial Wipe",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.inset",
+      "name": "Inset",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.venetian_blinds",
+      "name": "Venetian Blinds",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.checker_wipe",
+      "name": "Checker Wipe",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.random_blocks",
+      "name": "Random Blocks",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.cross_zoom",
+      "name": "Cross Zoom",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.flip_over",
+      "name": "Flip Over",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.zoom_in",
+      "name": "Zoom In",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.zoom_out",
+      "name": "Zoom Out",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.spin",
+      "name": "Spin",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.stretch",
+      "name": "Stretch",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.smooth_slide",
+      "name": "Smooth Slide",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.blur_dissolve",
+      "name": "Blur Dissolve",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.luma_fade",
+      "name": "Luma Fade",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.flash",
+      "name": "Flash",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.light_leak",
+      "name": "Light Leak",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.film_burn",
+      "name": "Film Burn",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.glitch",
+      "name": "Glitch",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.hexagons",
+      "name": "Hexagons",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.shatter",
+      "name": "Shatter",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.ink",
+      "name": "Ink",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.pixelate",
+      "name": "Pixelate",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.kaleidoscope",
+      "name": "Kaleidoscope",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    },
+    {
+      "id": "op.tr.chroma_split",
+      "name": "Chromatic Split",
+      "kind": "VideoTransition",
+      "supported": false,
+      "hybrid_supported": true,
+      "implementation": "shared native preparation; Skia floating composition"
+    }
+  ],
+  "blend_modes": [
+    {
+      "id": 0,
+      "name": "Normal",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 1,
+      "name": "Dissolve",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 2,
+      "name": "Darken",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 3,
+      "name": "Multiply",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 4,
+      "name": "Color Burn",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 5,
+      "name": "Linear Burn",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 6,
+      "name": "Darker Color",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 7,
+      "name": "Lighten",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 8,
+      "name": "Screen",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 9,
+      "name": "Color Dodge",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 10,
+      "name": "Linear Dodge (Add)",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 11,
+      "name": "Lighter Color",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 12,
+      "name": "Overlay",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 13,
+      "name": "Soft Light",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 14,
+      "name": "Hard Light",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 15,
+      "name": "Vivid Light",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 16,
+      "name": "Linear Light",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 17,
+      "name": "Pin Light",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 18,
+      "name": "Hard Mix",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 19,
+      "name": "Difference",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 20,
+      "name": "Exclusion",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 21,
+      "name": "Subtract",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 22,
+      "name": "Divide",
+      "supported": false,
+      "hybrid_supported": true
+    },
+    {
+      "id": 23,
+      "name": "Hue",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 24,
+      "name": "Saturation",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 25,
+      "name": "Color",
+      "supported": true,
+      "hybrid_supported": true
+    },
+    {
+      "id": 26,
+      "name": "Luminosity",
+      "supported": true,
+      "hybrid_supported": true
+    }
+  ]
+}

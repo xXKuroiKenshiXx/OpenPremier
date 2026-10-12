@@ -103,7 +103,7 @@ impl Scene {
             scale: 1.0,
             source: &NoFrames,
         });
-        let px = r.rgba8(&frame);
+        let px = r.rgba8(&frame).expect("frame readback");
         r.recycle(frame);
         px
     }

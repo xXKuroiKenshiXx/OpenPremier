@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use op_application::media::ExactFrames;
 use op_application::{Editor, ExportJob, ExportSettings, MediaService};
 use op_core::*;
-use op_media::{AudioCodec, AudioSettings, Muxer, VideoCodec, VideoSettings};
+use op_media::{
+    AudioCodec, AudioSettings, DeliveryColor, Hdr10Metadata, Muxer, VideoCodec, VideoSettings,
+};
 use op_render::{Gpu, Renderer, Request};
 use serde_json::{Value as Json, json};
 
@@ -41,7 +43,7 @@ pub fn frame_png(
         source: &frames,
     });
     let (w, h) = (frame.width, frame.height);
-    let mut rgba = r.rgba8(&frame);
+    let mut rgba = r.rgba8(&frame)?;
     r.recycle(frame);
     // over black, as the Program Monitor shows it (the image has straight alpha)
     for px in rgba.as_chunks_mut::<4>().0 {
@@ -55,6 +57,8 @@ pub fn frame_png(
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join("frame.png");
     let v = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: VideoCodec::Png,
         width: w,
         height: h,
@@ -75,7 +79,7 @@ pub fn frame_png(
 pub fn export(ed: &mut Editor, a: &Json) -> Result<Vec<Content>, String> {
     let (settings, path) = export_settings(ed, a)?;
     let began = Instant::now();
-    let job = ExportJob::start(ed.snapshot(), settings, gpu()?, ed.media.clone());
+    let job = ExportJob::start_headless(ed.snapshot(), settings, ed.media.clone());
     while !job.finished() {
         if began.elapsed() > Duration::from_secs(6 * 3600) {
             job.cancel();
@@ -92,6 +96,7 @@ pub fn export(ed: &mut Editor, a: &Json) -> Result<Vec<Content>, String> {
             "file": path.display().to_string(),
             "seconds": (began.elapsed().as_secs_f64() * 10.0).round() / 10.0,
             "encoder": pr.encoder,
+            "renderer": pr.renderer,
         })
         .to_string(),
     )])
@@ -101,7 +106,7 @@ pub fn export(ed: &mut Editor, a: &Json) -> Result<Vec<Content>, String> {
 /// its progress at the bottom right.
 pub fn export_in_background(ed: &mut Editor, a: &Json) -> Result<Vec<Content>, String> {
     let (settings, path) = export_settings(ed, a)?;
-    let job = ExportJob::start(ed.snapshot(), settings, gpu()?, ed.media.clone());
+    let job = ExportJob::start_headless(ed.snapshot(), settings, ed.media.clone());
     ed.exports.push(job);
     Ok(vec![Content::Text(
         json!({"started": path.display().to_string(), "note": "the export runs in the open program; the file is complete when its progress reaches 100 %"})
@@ -156,11 +161,30 @@ fn export_settings(ed: &mut Editor, a: &Json) -> Result<(ExportSettings, PathBuf
             bitrate_kbps: 0,
         }),
     };
+    let color: DeliveryColor = a
+        .get("color")
+        .map(|v| serde_json::from_value(v.clone()))
+        .transpose()
+        .map_err(|_| "color must be bt709, pq or hlg")?
+        .unwrap_or_default();
+    let hdr10: Hdr10Metadata = a
+        .get("hdr10")
+        .map(|v| serde_json::from_value(v.clone()))
+        .transpose()
+        .map_err(|e| format!("invalid hdr10 metadata: {e}"))?
+        .unwrap_or_default();
     let settings = ExportSettings {
+        engine: match a.get("renderer") {
+            None => Default::default(),
+            Some(value) => serde_json::from_value(value.clone())
+                .map_err(|_| "renderer must be wgpu, wgpu_software, fframes_cpu or fframes_gpu")?,
+        },
         path: path.clone(),
         sequence: sid,
         range: SeqRange::new(SeqTime::from_seconds(start), SeqTime::from_seconds(end)),
         video: Some(VideoSettings {
+            color,
+            hdr10,
             codec,
             width: size("width", seq.settings.width) & !1,
             height: size("height", seq.settings.height) & !1,
@@ -171,5 +195,8 @@ fn export_settings(ed: &mut Editor, a: &Json) -> Result<(ExportSettings, PathBuf
         }),
         audio,
     };
+    if let Some(video) = &settings.video {
+        video.validate_delivery().map_err(|e| e.to_string())?;
+    }
     Ok((settings, path))
 }

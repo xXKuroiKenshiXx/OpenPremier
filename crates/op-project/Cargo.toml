@@ -15,9 +15,9 @@ thiserror.workspace = true
 flate2.workspace = true
 quick-xml.workspace = true
 indexmap.workspace = true
+tempfile.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 op-timeline.workspace = true
 
 [lints]

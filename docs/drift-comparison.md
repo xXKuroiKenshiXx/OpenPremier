@@ -2,8 +2,9 @@
 
 **Reviewed:** 2026-10-02, [CutWire-Studios/Drift](https://github.com/CutWire-Studios/Drift) at
 commit `809bbaf` (last release 0.6.0)<br>
-**License:** GPL-3.0, like OpenPremier. Nothing below was copied; this is a description of
-approaches and features, used to plan our own work ([roadmap.md](roadmap.md)).
+**License:** Drift is GPL-3.0; OpenPremier is GPL-3.0-or-later. This is an architecture/feature
+comparison used to plan work ([roadmap.md](roadmap.md)), not forensic proof that no historical
+adaptation occurred. See [the provenance review](legal/audit-2026-10-07.md).
 
 Drift is a free desktop editor aimed at short-form creators (Reels, Shorts, game clips, school
 projects). It is written in C++ with Qt 6 and QML, uses FFmpeg for media and ships for Linux
@@ -15,7 +16,7 @@ image) and Android.
 | Area | Drift | OpenPremier |
 |---|---|---|
 | GPU API | OpenGL through Qt (`QOpenGLContext` on an offscreen surface, one GL thread, framebuffer pool) | wgpu: Direct3D 12, Vulkan, Metal or OpenGL, chosen in Preferences |
-| Compositor | One compositor (`GpuCompositor`) for preview and export, so the preview matches the file | Same principle: one renderer for the monitors and export |
+| Compositor | One compositor (`GpuCompositor`) for preview and export, so the preview matches the file | Shared native wgpu for preview/default export; optional isolated fframes CPU/Skia GPU export has a documented subset and visual differences |
 | Effects | Data-driven packages: `effect.json` (parameters and a list of passes with intermediate buffers at chosen scales) plus GLSL fragment shaders per pass | Effects compiled into the program: catalog entries in Rust, WGSL passes |
 | Transitions | Same package format (`transition.json` + `main.frag`) | Rust dispatch + WGSL |
 | Text and vector graphics | Skia (Ganesh) inside the same GL context; Lottie and SVG animations | Our own text rasterizer (fontdb + ab_glyph) and shape drawing |

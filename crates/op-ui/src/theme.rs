@@ -43,7 +43,26 @@ pub fn audio_clip_color(l: op_core::Label) -> Color32 {
     }
 }
 
-pub fn apply(ctx: &egui::Context, scale: f32) {
+pub fn row_height(ui: &egui::Ui) -> f32 {
+    ui.spacing().interact_size.y + 4.0
+}
+
+pub fn body_font(ui: &egui::Ui) -> FontId {
+    TextStyle::Body.resolve(ui.style())
+}
+
+pub fn small_font(ui: &egui::Ui) -> FontId {
+    TextStyle::Small.resolve(ui.style())
+}
+
+pub fn apply(ctx: &egui::Context, scale: f32, density: op_application::prefs::UiDensity) {
+    use op_application::prefs::UiDensity;
+    let (small, body, heading, mono, gap, padding) = match density {
+        UiDensity::Compact => (10.5, 12.5, 16.0, 12.0, 4.0, 2.0),
+        // dense like a professional editor: the larger settings only add a little air
+        UiDensity::Comfortable => (11.0, 13.0, 17.0, 12.5, 5.0, 3.0),
+        UiDensity::Spacious => (12.0, 14.0, 18.5, 13.0, 6.0, 4.0),
+    };
     ctx.set_zoom_factor(scale.clamp(0.75, 3.0));
     let mut style = Style {
         visuals: Visuals::dark(),
@@ -106,31 +125,71 @@ pub fn apply(ctx: &egui::Context, scale: f32) {
     style.text_styles = [
         (
             TextStyle::Small,
-            FontId::new(10.5, FontFamily::Proportional),
+            FontId::new(small, FontFamily::Proportional),
         ),
-        (TextStyle::Body, FontId::new(12.5, FontFamily::Proportional)),
+        (TextStyle::Body, FontId::new(body, FontFamily::Proportional)),
         (
             TextStyle::Button,
-            FontId::new(12.5, FontFamily::Proportional),
+            FontId::new(body, FontFamily::Proportional),
         ),
         (
             TextStyle::Heading,
-            FontId::new(16.0, crate::fonts::strong()),
+            FontId::new(heading, crate::fonts::strong()),
         ),
         (
             TextStyle::Monospace,
-            FontId::new(12.0, FontFamily::Monospace),
+            FontId::new(mono, FontFamily::Monospace),
         ),
     ]
     .into();
-    style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-    style.spacing.button_padding = egui::vec2(7.0, 2.0);
-    style.spacing.menu_margin = egui::Margin::same(5);
-    style.spacing.window_margin = egui::Margin::same(14);
-    style.spacing.interact_size.y = 20.0;
-    style.spacing.slider_width = 120.0;
+    style.spacing.item_spacing = egui::vec2(gap + 2.0, gap);
+    style.spacing.button_padding = egui::vec2(7.0, padding);
+    style.spacing.menu_margin = egui::Margin::same((padding + 3.0) as i8);
+    style.spacing.window_margin = egui::Margin::same((padding + 11.0) as i8);
+    style.spacing.interact_size.y = density.control_height();
+    style.spacing.slider_width = 130.0;
     style.interaction.tooltip_delay = 0.4;
     ctx.set_theme(egui::Theme::Dark);
     ctx.set_style_of(egui::Theme::Light, style.clone());
     ctx.set_style_of(egui::Theme::Dark, style);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use op_application::prefs::UiDensity;
+
+    #[test]
+    fn densities_keep_interactive_controls_and_labels_inside_rows() {
+        if let Some(folder) = std::env::var_os("OPENPREMIER_UI_STYLE_ARTIFACTS") {
+            crate::density_preview::render(std::path::Path::new(&folder));
+        }
+        let ctx = egui::Context::default();
+        crate::fonts::install(&ctx, "inter");
+        for density in [
+            UiDensity::Compact,
+            UiDensity::Comfortable,
+            UiDensity::Spacious,
+        ] {
+            apply(&ctx, 1.0, density);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let row = row_height(ui);
+                    let response = ui.button("Export Settings / Configuración de exportación");
+                    assert!(response.rect.height() <= row);
+                    assert!(body_font(ui).size + 4.0 <= row);
+                    let icon =
+                        crate::icons::button(ui, crate::icons::Icon::Play, 20.0, false, "Play");
+                    assert_eq!(icon.rect.height(), density.control_height());
+                    assert!(crate::widgets::section(
+                        ui,
+                        egui::Id::new("sample"),
+                        "Effect Controls",
+                        true
+                    ));
+                });
+            });
+            output.textures_delta.clear();
+        }
+    }
 }

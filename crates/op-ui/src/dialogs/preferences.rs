@@ -22,9 +22,9 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
     window(ctx, t("Preferences"))
         .open(&mut open)
         .resizable(false)
-        .default_width(500.0)
+        .default_width(620.0)
         .show(ctx, |ui| {
-            ui.set_min_width(480.0);
+            ui.set_min_width(580.0_f32.min((ctx.content_rect().width() - 48.0).max(240.0)));
             // taller than small screens: the settings scroll
             let max_h = (ui.ctx().content_rect().height() - 140.0).max(240.0);
             egui::ScrollArea::vertical()
@@ -33,6 +33,8 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
             let p = &mut s.ed.prefs;
+            crate::plugins::settings(ui, &mut p.plugins);
+            ui.separator();
             let mut log_changed = false;
             ui.label(RichText::new(t("General")).strong().family(crate::fonts::strong()).color(theme::TEXT_BRIGHT));
             ui.add_space(2.0);
@@ -99,6 +101,20 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
                             p.ui_scale = 1.0;
                         }
                     });
+                    ui.end_row();
+                    ui.label(t("Interface Density"));
+                    egui::ComboBox::from_id_salt("pref-density")
+                        .selected_text(t(match p.ui_density {
+                            op_application::prefs::UiDensity::Compact => "Compact",
+                            op_application::prefs::UiDensity::Comfortable => "Comfortable",
+                            op_application::prefs::UiDensity::Spacious => "Spacious",
+                        }))
+                        .show_ui(ui, |ui| {
+                            use op_application::prefs::UiDensity;
+                            for (density, name) in [(UiDensity::Compact, "Compact"), (UiDensity::Comfortable, "Comfortable"), (UiDensity::Spacious, "Spacious")] {
+                                ui.selectable_value(&mut p.ui_density, density, t(name));
+                            }
+                        });
                     ui.end_row();
                     ui.label(t("Interface Font"));
                     if s.ec.fonts.is_empty() {
@@ -193,6 +209,18 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
                     ui.add(egui::DragValue::new(&mut p.autosave_keep).range(1..=100));
                     ui.end_row();
                     let preview_before = (p.playback_resolution, p.paused_resolution, p.frame_cache_mb);
+                    ui.label(t("Preview Render Engine"));
+                    egui::ComboBox::from_id_salt("preview-engine")
+                        .selected_text(t(p.preview_engine.label()))
+                        .show_ui(ui, |ui| {
+                            for engine in [op_application::render_engine::RenderEngine::Wgpu, op_application::render_engine::RenderEngine::FframesCpu, op_application::render_engine::RenderEngine::FframesGpu] {
+                                let available = !engine.is_fframes() || op_application::render_engine::fframes_worker_path().is_some();
+                                if ui.add_enabled(available, egui::Button::selectable(p.preview_engine == engine, t(engine.label()))).clicked() {
+                                    p.preview_engine = engine;
+                                }
+                            }
+                        });
+                    ui.end_row();
                     ui.label(t("Playback Resolution"));
                     egui::ComboBox::from_id_salt("pref-pres")
                         .selected_text(res_label(p.playback_resolution))
@@ -226,6 +254,19 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
                     ui.end_row();
                     ui.label(t("Audio Scrubbing"));
                     ui.checkbox(&mut p.audio_scrubbing, "");
+                    ui.end_row();
+                    ui.label(t("Automatic Proxies"));
+                    ui.checkbox(&mut p.automatic_proxies, t("Create proxies when importing video"));
+                    ui.end_row();
+                    ui.label(t("Proxy Resolution"));
+                    egui::ComboBox::from_id_salt("pref-proxy-resolution")
+                        .selected_text(format!("{}p", p.proxy_resolution.short_side()))
+                        .show_ui(ui, |ui| {
+                            use op_application::prefs::ProxyResolution;
+                            for resolution in [ProxyResolution::P540, ProxyResolution::P720, ProxyResolution::P1080] {
+                                ui.selectable_value(&mut p.proxy_resolution, resolution, format!("{}p", resolution.short_side()));
+                            }
+                        });
                     ui.end_row();
                     ui.label(t("Hardware Encoding"));
                     ui.checkbox(

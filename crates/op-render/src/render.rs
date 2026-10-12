@@ -55,6 +55,7 @@ struct UploadedPlanes {
 }
 
 pub struct Renderer {
+    pub(crate) hdr_working: bool,
     pub gpu: Arc<Gpu>,
     pipes: Pipelines,
     arena: Arena,
@@ -129,6 +130,7 @@ impl Renderer {
             transparent,
             fonts: Fonts::global(),
             frame_counter: 0,
+            hdr_working: false,
             scopes: HashMap::new(),
             stats: Stats::default(),
         }
@@ -136,6 +138,49 @@ impl Renderer {
 
     pub fn device(&self) -> &wgpu::Device {
         &self.gpu.device
+    }
+
+    /// Enables color-managed HDR source conversion. Legacy SDR projects keep their encoding.
+    pub fn set_hdr_working(&mut self, enabled: bool) {
+        self.hdr_working = enabled;
+    }
+
+    /// Converts premultiplied source RGB to Rec.2020 / 203-nit HDR working RGB.
+    pub fn input_hdr(&mut self, source: &Tex, transfer: Transfer, primaries: Primaries) -> Tex {
+        let transfer = match transfer {
+            Transfer::Srgb => 1.0,
+            Transfer::Linear => 2.0,
+            Transfer::Pq => 3.0,
+            Transfer::Hlg => 4.0,
+            _ => 0.0,
+        };
+        let primaries = match primaries {
+            Primaries::Bt2020 => 1.0,
+            Primaries::P3 => 2.0,
+            Primaries::Bt601 => 3.0,
+            _ => 0.0,
+        };
+        let out = self.work(source.width, source.height);
+        self.pass(
+            "fs_input_hdr",
+            &[&source.view],
+            P::new().f(transfer).f(primaries),
+            source.size(),
+            &out,
+        );
+        out
+    }
+
+    pub(crate) fn working_709(&mut self, source: &Tex) -> Tex {
+        let out = self.work(source.width, source.height);
+        self.pass(
+            "fs_working_709",
+            &[&source.view],
+            P::new(),
+            source.size(),
+            &out,
+        );
+        out
     }
 
     pub(crate) fn encoder_mut(&mut self) -> &mut wgpu::CommandEncoder {
@@ -320,6 +365,48 @@ impl Renderer {
     }
 
     fn render_sequence(&mut self, req: &Request, sid: SequenceId, t: SeqTime, depth: usize) -> Tex {
+        self.render_sequence_collected(req, sid, t, depth, None)
+    }
+
+    /// Prepared premultiplied RGBA16F contributions for an external compositor.
+    /// Effects, transitions, mattes and nesting retain the native implementation. Blend
+    /// modes and adjustment layers depending on earlier tracks become explicit checkpoints.
+    /// Ordinary tracks remain separate, so the external renderer really composes them.
+    pub fn render_contributions(&mut self, req: &Request) -> Vec<Tex> {
+        self.stats = Stats::default();
+        self.frame_counter = self.frame_counter.wrapping_add(1);
+        let mut layers = Vec::new();
+        let acc = self.render_sequence_collected(req, req.sequence, req.time, 0, Some(&mut layers));
+        self.recycle(acc);
+        self.pool.end_frame();
+        layers
+    }
+
+    fn contribution(&mut self, layers: &mut Vec<Tex>, image: &Tex, acc: &Tex, checkpoint: bool) {
+        // Bound retained images to 512 MiB. A checkpoint includes every earlier track,
+        // preserving the result while freeing contributions already folded into it.
+        let checkpoint = checkpoint
+            || (layers.len() as u64 + 1) * u64::from(image.width) * u64::from(image.height) * 8
+                > 512 * 1024 * 1024;
+        if checkpoint {
+            for image in layers.drain(..) {
+                self.recycle(image);
+            }
+        }
+        let source = if checkpoint { acc } else { image };
+        let copy = self.work(source.width, source.height);
+        self.pass("fs_copy", &[&source.view], P::new(), source.size(), &copy);
+        layers.push(copy);
+    }
+
+    fn render_sequence_collected(
+        &mut self,
+        req: &Request,
+        sid: SequenceId,
+        t: SeqTime,
+        depth: usize,
+        mut contributions: Option<&mut Vec<Tex>>,
+    ) -> Tex {
         let Some(seq) = req.project.sequence(sid) else {
             return self.clear(16, 16);
         };
@@ -336,6 +423,9 @@ impl Renderer {
                     self.stats.layers += 1;
                     if layer.source == LayerSource::Adjustment {
                         acc = self.adjustment(req, layer, acc, depth);
+                        if let Some(layers) = contributions.as_deref_mut() {
+                            self.contribution(layers, &acc, &acc, true);
+                        }
                         continue;
                     }
                     let matte = layer
@@ -372,10 +462,25 @@ impl Renderer {
                             self.pool.put(canvas);
                             self.pool.put(matte_img);
                             acc = self.composite(acc, &keyed, IDENTITY, 1.0, mode, linear);
+                            if let Some(layers) = contributions.as_deref_mut() {
+                                self.contribution(layers, &keyed, &acc, mode != 0 || linear);
+                            }
                             self.pool.put(keyed);
                         }
                         None => {
                             acc = self.composite(acc, &img, m, opacity, mode, linear);
+                            if let Some(layers) = contributions.as_deref_mut() {
+                                let placed = self.work(w, h);
+                                self.pass(
+                                    "fs_place",
+                                    &[&self.transparent.view.clone(), &img.view],
+                                    P::new().all(&m).f(opacity),
+                                    img.size(),
+                                    &placed,
+                                );
+                                self.contribution(layers, &placed, &acc, mode != 0 || linear);
+                                self.recycle(placed);
+                            }
                             self.pool.put(img);
                         }
                     }
@@ -400,6 +505,9 @@ impl Renderer {
                     self.pool.put(a);
                     self.pool.put(b);
                     acc = self.composite(acc, &mixed, IDENTITY, 1.0, 0, linear);
+                    if let Some(layers) = contributions.as_deref_mut() {
+                        self.contribution(layers, &mixed, &acc, linear);
+                    }
                     self.pool.put(mixed);
                 }
             }
@@ -478,7 +586,13 @@ impl Renderer {
         self.pass(
             "fs_composite",
             &[&acc.view, &layer.view],
-            P::new().all(&m).f(opacity).f(mode as f32).b(linear).f(seed),
+            P::new()
+                .all(&m)
+                .f(opacity)
+                .f(mode as f32)
+                .b(linear)
+                .f(seed)
+                .b(self.hdr_working),
             layer.size(),
             &out,
         );
@@ -617,6 +731,11 @@ impl Renderer {
             }
             LayerSource::Graphic => self.clear(sw, sh),
         };
+        if self.hdr_working && matches!(layer.source, LayerSource::Color(_) | LayerSource::Bars) {
+            let hdr = self.input_hdr(&img, Transfer::Bt709, Primaries::Bt709);
+            self.put(img);
+            img = hdr;
+        }
         let clip_time = layer.src_time.seconds() as f32;
         let effects: Vec<EvalComponent> = layer.effects().cloned().collect();
         for fx in &effects {
@@ -755,6 +874,11 @@ impl Renderer {
             [frame.width as f32, frame.height as f32],
             &out,
         );
+        if self.hdr_working {
+            let converted = self.input_hdr(&out, frame.color.transfer, frame.color.primaries);
+            self.put(out);
+            return converted;
+        }
         out
     }
 

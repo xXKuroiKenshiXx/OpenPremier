@@ -16,6 +16,7 @@ CMakeUserPresets.json
 Thumbs.db
 
 # Local research material and proprietary fixtures
+/local-research/
 *.prproj
 *.prfpset
 *.kys

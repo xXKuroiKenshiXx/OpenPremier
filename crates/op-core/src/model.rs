@@ -698,7 +698,7 @@ pub struct Clip {
     #[serde(default)]
     pub label: Label,
     /// Fixed components first, then standard effects in stack order (DM-FX-002).
-    pub components: Vec<Component>,
+    pub components: Components,
     /// Audio gain applied before effects (dB).
     #[serde(default)]
     pub gain_db: f64,
@@ -708,6 +708,72 @@ pub struct Clip {
     /// Audio channel layout this clip carries.
     #[serde(default)]
     pub channels: Option<ChannelLayout>,
+}
+
+/// A value shared between copies until one of them changes it (copy on write). Undo keeps a
+/// copy of every changed track and a razor cut makes two clips from one; without sharing, a
+/// timeline of thousands of pieces with effects held a full copy of every effect parameter in
+/// every undo step and ran out of memory.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Shared<T: Clone>(Arc<T>);
+
+/// The components of a clip.
+pub type Components = Shared<Vec<Component>>;
+/// The parameters of a component.
+pub type Params = Shared<Vec<Param>>;
+
+impl<T: Clone> Shared<T> {
+    pub fn new(v: T) -> Shared<T> {
+        Shared(Arc::new(v))
+    }
+
+    /// Whether both hold the very same value (no copy was made).
+    pub fn shares(&self, other: &Shared<T>) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T: Clone> From<T> for Shared<T> {
+    fn from(v: T) -> Shared<T> {
+        Shared::new(v)
+    }
+}
+
+impl<X: Clone> FromIterator<X> for Shared<Vec<X>> {
+    fn from_iter<I: IntoIterator<Item = X>>(iter: I) -> Shared<Vec<X>> {
+        Shared::new(iter.into_iter().collect())
+    }
+}
+
+impl<T: Clone> std::ops::Deref for Shared<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: Clone> std::ops::DerefMut for Shared<T> {
+    /// Writing copies the value first when another copy still shares it.
+    fn deref_mut(&mut self) -> &mut T {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
+impl<'a, X: Clone> IntoIterator for &'a Shared<Vec<X>> {
+    type Item = &'a X;
+    type IntoIter = std::slice::Iter<'a, X>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a, X: Clone> IntoIterator for &'a mut Shared<Vec<X>> {
+    type Item = &'a mut X;
+    type IntoIter = std::slice::IterMut<'a, X>;
+    fn into_iter(self) -> Self::IntoIter {
+        Arc::make_mut(&mut self.0).iter_mut()
+    }
 }
 
 impl Clip {
@@ -841,7 +907,7 @@ pub struct Component {
     pub effect: String,
     #[serde(default = "yes")]
     pub enabled: bool,
-    pub params: Vec<Param>,
+    pub params: Params,
     /// Retained verbatim when the component came from a foreign project and is not understood.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub foreign: Option<String>,
@@ -1081,16 +1147,15 @@ impl Project {
     /// Whether `a` is `b` or one of its ancestors.
     pub fn is_ancestor(&self, a: ItemId, b: ItemId) -> bool {
         let mut cur = Some(b);
-        let mut guard = 0;
+        let mut seen = std::collections::HashSet::new();
         while let Some(c) = cur {
             if c == a {
                 return true;
             }
-            cur = self.item(c).and_then(|i| i.parent);
-            guard += 1;
-            if guard > 10_000 {
+            if !seen.insert(c) {
                 return false;
             }
+            cur = self.item(c).and_then(|i| i.parent);
         }
         false
     }
@@ -1103,7 +1168,11 @@ impl Project {
         }
         let mut stack = vec![id];
         let mut doomed = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         while let Some(i) = stack.pop() {
+            if i == self.root || !seen.insert(i) {
+                continue;
+            }
             if let Some(item) = self.item(i) {
                 if let ItemKind::Bin { children } = &item.kind {
                     stack.extend(children.iter().copied());
@@ -1132,6 +1201,12 @@ impl Project {
                 .items
                 .values()
                 .any(|i| matches!(i.kind, ItemKind::Media { asset, .. } if asset == *a))
+        });
+        dead_seqs.retain(|s| {
+            !self
+                .items
+                .values()
+                .any(|i| matches!(i.kind, ItemKind::Sequence { sequence } if sequence == *s))
         });
         for a in &dead_assets {
             self.assets.shift_remove(a);
@@ -1168,15 +1243,25 @@ impl Project {
     /// Items whose parent chain reaches the root, in depth-first order.
     pub fn walk(&self) -> Vec<(usize, ItemId)> {
         let mut out = Vec::new();
-        fn rec(p: &Project, bin: ItemId, depth: usize, out: &mut Vec<(usize, ItemId)>) {
-            for &c in p.children(bin) {
-                out.push((depth, c));
-                if p.item(c).is_some_and(|i| i.is_bin()) && depth < 256 {
-                    rec(p, c, depth + 1, out);
-                }
+        let mut seen = std::collections::HashSet::from([self.root]);
+        let mut stack: Vec<_> = self
+            .children(self.root)
+            .iter()
+            .rev()
+            .map(|id| (0, *id))
+            .collect();
+        while let Some((depth, id)) = stack.pop() {
+            if !seen.insert(id) || self.item(id).is_none() {
+                continue;
             }
+            out.push((depth, id));
+            stack.extend(
+                self.children(id)
+                    .iter()
+                    .rev()
+                    .map(|child| (depth + 1, *child)),
+            );
         }
-        rec(self, self.root, 0, &mut out);
         out
     }
 
@@ -1314,6 +1399,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn deep_bins_walk_move_and_remove_without_a_depth_cutoff() {
+        let mut p = Project::new("deep bins");
+        let mut parent = p.root;
+        let mut first = None;
+        for _ in 0..10_100 {
+            parent = p.add_bin(parent, "bin");
+            first.get_or_insert(parent);
+        }
+        p.validate().unwrap();
+        let items = p.walk();
+        assert_eq!(items.len(), 10_100);
+        assert_eq!(items.last(), Some(&(10_099, parent)));
+        assert!(p.is_ancestor(p.root, parent));
+        assert!(!p.move_item(first.unwrap(), parent));
+        p.remove_item(first.unwrap());
+        assert_eq!(p.items.len(), 1);
+        p.validate().unwrap();
+    }
+
+    #[test]
+    fn cyclic_and_duplicate_children_do_not_repeat_walk_or_removal() {
+        let mut p = Project::new("corrupt bins");
+        let a = p.add_bin(p.root, "a");
+        let b = p.add_bin(a, "b");
+        p.item_mut(a).unwrap().kind = ItemKind::Bin {
+            children: vec![b, b, p.root],
+        };
+        p.item_mut(b).unwrap().kind = ItemKind::Bin { children: vec![a] };
+        assert!(p.validate().is_err());
+        assert_eq!(p.walk(), vec![(0, a), (1, b)]);
+        p.item_mut(a).unwrap().parent = Some(b);
+        assert!(!p.is_ancestor(ItemId(999), b));
+        p.item_mut(a).unwrap().parent = Some(p.root);
+        p.remove_item(a);
+        assert_eq!(p.items.len(), 1);
+        assert!(p.item(p.root).is_some());
+        p.validate().unwrap();
+    }
+
+    #[test]
+    fn removing_one_sequence_item_preserves_its_other_reference() {
+        let mut p = Project::new("sequence aliases");
+        let (seq, original) = p.add_sequence(p.root, "sequence", SequenceSettings::default());
+        let alias = p.add_item(p.root, "alias", ItemKind::Sequence { sequence: seq });
+        p.validate().unwrap();
+        p.remove_item(original);
+        assert!(p.sequence(seq).is_some());
+        assert_eq!(p.sequence_item(seq), Some(alias));
+        p.validate().unwrap();
+        p.remove_item(alias);
+        assert!(p.sequence(seq).is_none());
+        p.validate().unwrap();
+    }
+
+    #[test]
     fn items_and_bins() {
         let mut p = Project::new("t");
         let bin = p.add_bin(p.root, "Footage");
@@ -1365,7 +1505,7 @@ mod tests {
             link: None,
             group: None,
             label: Label::None,
-            components: vec![],
+            components: vec![].into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: None,

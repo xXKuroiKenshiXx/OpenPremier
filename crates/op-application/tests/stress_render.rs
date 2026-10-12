@@ -28,6 +28,8 @@ fn frames() -> u32 {
 fn source(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join("source.mp4");
     let v = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: VideoCodec::H264,
         width: W,
         height: H,
@@ -111,10 +113,13 @@ fn export(
 ) -> (f64, f32, [f32; 4]) {
     let path = dir.join(format!("{name}.mov"));
     let settings = ExportSettings {
+        engine: Default::default(),
         path,
         sequence: sid,
         range: SeqRange::new(SeqTime::ZERO, SeqTime::from_seconds(frames() as f64 / 25.0)),
         video: Some(VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             // a light intra codec, so the time is the rendering's
             codec: VideoCodec::ProRes422Hq,
             width: W,

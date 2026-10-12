@@ -15,6 +15,8 @@ fn preview_plays_the_proxy_and_export_the_original() {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("camera.mp4");
     let v = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: VideoCodec::H264,
         width: 1920,
         height: 1080,

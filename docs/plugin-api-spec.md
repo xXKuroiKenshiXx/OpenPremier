@@ -1,6 +1,6 @@
 # Plugin and scripting API specification
 
-**Status:** draft. OpenFX behavior is based on the public 1.5 reference; host capabilities and scripting IDL are not validated. No plugin loader is authorized.
+**Status:** external OpenFX/audio/Wasm hosting remains a draft. OpenFX behavior is based on the public 1.5 reference; host capabilities and scripting IDL are not validated. The editor now ships independently implemented **bundled native tools** (Motion Curves, Folder Portals, Quick Actions), managed in Preferences > Plugins. See [native-plugins.md](native-plugins.md). These compiled-in tools use the ordinary project/undo APIs; the offline Plugin Browser has no provider or downloader. There is no loader for Adobe extensions, OpenFX, VST/AU/AAX/LV2 or third-party executable plugins.
 
 ## 1. Goals and non-goals
 
@@ -11,6 +11,13 @@ OpenPremier needs three distinct extension surfaces:
 3. **Sandboxed automation API** using WebAssembly as the canonical portable runtime.
 
 These are separate APIs. OpenFX is not an audio API, and scripting plugins do not receive native render callbacks. Compatibility with Adobe UXP/ExtendScript source code is not promised; only selected workflow concepts may be mapped.
+
+OpenFX is also unrelated to Video Copilot's FX Console. Quick Actions is our native effect/command
+search and macro palette, and remains named Quick Actions. Planned Wasm scripting would automate
+editing through explicit capabilities/transactions; it is not a renderer or an audio-plugin API.
+The current VST3 SDK is MIT (the older dual GPL/proprietary licensing note is obsolete), but each
+third-party plugin and the VST trademark retain their own terms. No hosting SDK is bundled.
+See [the licensing audit](legal/audit-2026-10-07.md).
 
 ## 2. Common extension principles
 
@@ -177,7 +184,9 @@ These observations establish migration requirements only:
 - never execute a package while scanning its manifest;
 - do not promise source or runtime compatibility with UXP/CEP.
 
-Only manifests were inspected; JavaScript/HTML implementation bodies were excluded from the audit.
+That original manifest-audit stage excluded JavaScript/HTML bodies. Subsequent private research
+did inspect implementation bodies and binaries, contradicting the clean-room policy. The full
+provenance remains under review; the manifest-stage restriction cannot describe all later work.
 
 ## 7. UI extensions
 

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "recovered_on": "2026-10-07",
+  "acquisition_note": "Archive identity recovered after original installation; original acquisition receipt unavailable.",
+  "release": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-28-13-06",
+  "archive": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-28-13-06/ffmpeg-n8.1.3-6-gff48edd8b2-win64-gpl-shared-8.1.zip",
+  "archive_sha256": "79ac04d9b71462e1a3f5f1ea9be3c97856a8791eb29b11835f80b2629fea12a1",
+  "archive_bytes": 90077549,
+  "github_digest": "sha256:79ac04d9b71462e1a3f5f1ea9be3c97856a8791eb29b11835f80b2629fea12a1",
+  "verified_dlls": [
+    {
+      "name": "avcodec-62.dll",
+      "sha256": "5690930e4d4557266bc7e8d9b0da5d3619c76cfc6025784d93ead98e698619ae",
+      "bytes": 118923264
+    },
+    {
+      "name": "avdevice-62.dll",
+      "sha256": "dfdeeec4e45971bdb81e4dd54f5f83f733ff6430aa82a514ef58a4cc686cc489",
+      "bytes": 4947456
+    },
+    {
+      "name": "avfilter-11.dll",
+      "sha256": "3a7a337bf214d12c027df588c08c2d5cb9231d8c56259f83604f5cee4a8e3920",
+      "bytes": 37015040
+    },
+    {
+      "name": "avformat-62.dll",
+      "sha256": "3e6dd58af9e389b9dab01592293d555970b1ca61e313d2bb9ec8365fe73e5242",
+      "bytes": 22967808
+    },
+    {
+      "name": "avutil-60.dll",
+      "sha256": "52db2cb018533d3b5c37fb3d186749e9628e38bf4aad91d702dd5ce9adde8d6c",
+      "bytes": 3014144
+    },
+    {
+      "name": "swresample-6.dll",
+      "sha256": "c158bec01c6cddfe386827c97b5c3529a6fcec091f736e52df5fee4bcf93c874",
+      "bytes": 734720
+    },
+    {
+      "name": "swscale-9.dll",
+      "sha256": "a86816d37073b089d0748b04592e179c21d444f0a13c2d190c629abc5c1518e2",
+      "bytes": 12900864
+    }
+  ],
+  "corresponding_source_review": "pending: enabled external library source/build materials"
+}

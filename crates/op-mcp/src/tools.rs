@@ -166,6 +166,24 @@ pub fn list() -> Json {
             &[]
         ),
         tool(
+            "split_caption",
+            "Splits one caption between spoken words at the nearest frame. Preserves absolute word timing/styles; unsupported cuts fail without mutation.",
+            json!({"clip_id": int("Caption clip id"), "at": num("Sequence time in seconds; must fall between words")}),
+            &["clip_id", "at"]
+        ),
+        tool(
+            "merge_captions",
+            "Merges selected consecutive touching captions on one unlocked track, with identical static styles/effects. Rejects gaps, animation and foreign data.",
+            json!({"clip_ids": ids("At least two distinct caption clip ids; track order determines word order")}),
+            &["clip_ids"]
+        ),
+        tool(
+            "set_caption_bounds",
+            "Sets caption start/end at nearest sequence frames while preserving absolute spoken-word times. No word may be cropped and no neighbor overwritten. Animated expansion before source time zero is unsupported.",
+            json!({"clip_id": int("Caption clip id"), "start": num("Nonnegative sequence start, seconds"), "end": num("Sequence end after start, seconds")}),
+            &["clip_id", "start", "end"]
+        ),
+        tool(
             "set_caption_style",
             "Changes every caption of the sequence at once (style, font, font_size, fill, highlight, position, uppercase...).",
             json!({"params": json!({"type": "object"})}),
@@ -218,7 +236,7 @@ pub fn list() -> Json {
         tool(
             "export",
             "Exports the active sequence and waits until the file is written.",
-            json!({"path": s("Output file (.mp4, .mov, .mxf, .png)"), "format": s("h264 (default), hevc, prores, prores4444, dnxhr or png"), "start": num("Seconds (default 0)"), "end": num("Seconds (default: the end of the sequence)"), "width": int("Default: the sequence's"), "height": int("Default: the sequence's")}),
+            json!({"color": {"type":"string","enum":["bt709","pq","hlg"],"description":"Delivery color; HDR requires HEVC or ProRes, uses BT.2020 / 10-bit, SDR graphics white 203 cd/m²."}, "hdr10": {"type":"object","additionalProperties":false,"description":"PQ authored metadata for BT.2020/D65 mastering; not a content measurement.","properties":{"mastering_max_nits":num("100–10000; default 1000"),"mastering_min_nits":num("default 0.0001"),"max_cll":int("0–10000; default 1000"),"max_fall":int("0–MaxCLL; default 400")}}, "path": s("Output file (.mp4, .mov, .mxf, .png)"), "format": s("h264 (default), hevc, prores, prores4444, dnxhr or png"), "renderer": {"type":"string","enum":["wgpu","wgpu_software","fframes_cpu","fframes_gpu"],"description":"Compositor, independent of the encoder; default wgpu. fframes requires the installed worker and supported features; fframes_gpu uses a physical Skia GPU with no CPU fallback."}, "start": num("Seconds (default 0)"), "end": num("Seconds (default: the end of the sequence)"), "width": int("Default: the sequence's"), "height": int("Default: the sequence's")}),
             &["path"]
         ),
         tool(
@@ -1280,6 +1298,7 @@ fn run(ed: &mut Editor, name: &str, a: &Json) -> R {
                 None => text(json!({"captions": ed.caption_clips().len()})),
             }
         }
+        "split_caption" | "merge_captions" | "set_caption_bounds" => caption_edit_tool(ed, name, a),
         "set_caption_style" => {
             let clips = ed.caption_clips();
             if clips.is_empty() {
@@ -1373,4 +1392,77 @@ fn status_error(ed: &Editor, fallback: &str) -> String {
         .filter(|s| s.error)
         .map(|s| s.text.clone())
         .unwrap_or_else(|| fallback.to_string())
+}
+
+fn caption_clip_arg(a: &Json, key: &str) -> Result<ClipId, String> {
+    a.get(key)
+        .and_then(Json::as_u64)
+        .filter(|id| *id > 0)
+        .map(ClipId)
+        .ok_or_else(|| format!("{key} must be a positive integer clip id"))
+}
+
+fn caption_time_arg(a: &Json, key: &str) -> Result<SeqTime, String> {
+    a.get(key)
+        .and_then(Json::as_f64)
+        .filter(|time| time.is_finite() && *time >= 0.0 && *time <= SeqTime::MAX.seconds())
+        .map(SeqTime::from_seconds)
+        .ok_or_else(|| format!("{key} must be a finite nonnegative supported sequence time"))
+}
+
+fn caption_edit_tool(ed: &mut Editor, name: &str, a: &Json) -> R {
+    active(ed)?;
+    match name {
+        "split_caption" => {
+            let id = caption_clip_arg(a, "clip_id")?;
+            let at = caption_time_arg(a, "at")?;
+            ed.status = None;
+            if !ed.split_caption(id, at) {
+                return Err(status_error(ed, "the caption could not be split"));
+            }
+            text(json!({"clip_ids": ed.selection.clips.iter().map(|id| id.0).collect::<Vec<_>>()}))
+        }
+        "merge_captions" => {
+            let values = a
+                .get("clip_ids")
+                .and_then(Json::as_array)
+                .ok_or("clip_ids must be an array of caption ids")?;
+            let ids: Vec<ClipId> = values
+                .iter()
+                .map(|value| {
+                    value
+                        .as_u64()
+                        .filter(|id| *id > 0)
+                        .map(ClipId)
+                        .ok_or("clip_ids must contain positive integer ids")
+                })
+                .collect::<Result<_, _>>()?;
+            if ids.len() < 2 || ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id)) {
+                return Err("clip_ids must contain at least two distinct caption ids".into());
+            }
+            ed.status = None;
+            if !ed.merge_captions(&ids) {
+                return Err(status_error(ed, "the captions could not be merged"));
+            }
+            text(json!({"clip_id": ed.selection.clips[0].0}))
+        }
+        "set_caption_bounds" => {
+            let id = caption_clip_arg(a, "clip_id")?;
+            let start = caption_time_arg(a, "start")?;
+            let end = caption_time_arg(a, "end")?;
+            ed.status = None;
+            let changed = ed.set_caption_bounds(id, start, end);
+            if !changed && ed.status.as_ref().is_some_and(|s| s.error) {
+                return Err(status_error(ed, "caption times could not be changed"));
+            }
+            let clip = ed
+                .active_seq()
+                .and_then(|seq| seq.clip(id))
+                .ok_or("caption no longer exists")?;
+            text(
+                json!({"clip_id": id.0, "changed": changed, "start": clip.start.seconds(), "end": clip.end().seconds(), "start_ticks": clip.start.ticks(), "end_ticks": clip.end().ticks()}),
+            )
+        }
+        _ => Err(format!("no caption tool {name}")),
+    }
 }

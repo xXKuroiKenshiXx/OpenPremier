@@ -139,6 +139,7 @@ pub fn inside(_args: &[String]) -> Result {
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("target"));
     let bin = target.join("release").join(util::BIN);
+    let worker = dist::worker_build()?;
 
     let appdir = target.join("AppDir");
     if appdir.exists() {
@@ -157,6 +158,9 @@ pub fn inside(_args: &[String]) -> Result {
     }
     let app_bin = usr.join("bin").join(util::BIN);
     fs::copy(&bin, &app_bin)?;
+    let worker_bin = usr.join("bin/OpenPremier-FFrames");
+    fs::copy(worker, &worker_bin)?;
+    util::make_executable(&worker_bin)?;
     // keep symbols for readable crash reports, drop debug information
     if util::have("strip") {
         util::run(Command::new("strip").arg("--strip-debug").arg(&app_bin))?;
@@ -214,6 +218,19 @@ pub fn inside(_args: &[String]) -> Result {
     eprint!("{ldd}");
     if ldd.contains("not found") {
         return Err("the program has unresolved libraries".into());
+    }
+    let worker_ldd = util::output(Command::new("ldd").arg(&worker_bin))?;
+    if worker_ldd.contains("not found") {
+        return Err("the fframes worker has unresolved libraries".into());
+    }
+    // Exercise both IPC formats using the packaged libraries, without requiring a GPU.
+    for float in [false, true] {
+        let mut test = Command::new(&worker_bin);
+        test.args(["--self-test", "--backend", "cpu"]);
+        if float {
+            test.arg("--float-layers");
+        }
+        util::run(&mut test)?;
     }
 
     let tools = util::third_party().join("appimage");

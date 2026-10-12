@@ -542,7 +542,7 @@ mod tests {
             link: None,
             group: None,
             label: Label::None,
-            components: crate::model::default_components(EffectKind::VideoFixed, &mut ids),
+            components: crate::model::default_components(EffectKind::VideoFixed, &mut ids).into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: None,

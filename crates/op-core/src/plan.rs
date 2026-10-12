@@ -122,6 +122,8 @@ pub struct ClipLayer {
     /// Enabled components in stack order, evaluated at `src_time`.
     pub components: Vec<EvalComponent>,
     pub src_time: SrcTime,
+    /// Sequence seconds after the clip start, for procedural camera moves.
+    pub elapsed: f64,
     /// The clip's length on the timeline, in seconds.
     pub duration: f64,
 }
@@ -292,6 +294,7 @@ fn layer(project: &Project, seq: &Sequence, c: &Clip, t: SeqTime) -> ClipLayer {
         scale_to_frame: c.scale_to_frame,
         components,
         src_time: src,
+        elapsed: (t - c.start).seconds(),
         duration: c.duration.seconds(),
     }
 }
@@ -325,7 +328,7 @@ mod tests {
             link: None,
             group: None,
             label: Label::None,
-            components: default_components(EffectKind::VideoFixed, &mut ids),
+            components: default_components(EffectKind::VideoFixed, &mut ids).into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: None,

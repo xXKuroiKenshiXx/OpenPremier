@@ -48,6 +48,27 @@ fn safe_name(s: &str) -> String {
     if n.is_empty() { "Untitled".into() } else { n }
 }
 
+/// Only files generated for this exact project belong to its retention set. Matching just a
+/// prefix would also prune another project such as `A-B` when saving project `A`.
+fn belongs_to_project(path: &Path, name: &str) -> bool {
+    let Some(file) = path.file_name().and_then(|f| f.to_str()) else {
+        return false;
+    };
+    let Some(stamp) = file
+        .strip_prefix(name)
+        .and_then(|f| f.strip_prefix('-'))
+        .and_then(|f| f.strip_suffix(".opproj"))
+    else {
+        return false;
+    };
+    stamp.len() == 15
+        && stamp.as_bytes()[8] == b'-'
+        && stamp
+            .bytes()
+            .enumerate()
+            .all(|(i, c)| i == 8 || c.is_ascii_digit())
+}
+
 /// Writes an autosave copy and prunes old ones for this project.
 pub fn write(editor: &mut Editor) -> Result<PathBuf, String> {
     let project = editor.snapshot();
@@ -76,12 +97,7 @@ pub fn write_project(
         .map_err(|e| e.to_string())?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| {
-            p.file_name()
-                .is_some_and(|n| n.to_string_lossy().starts_with(&format!("{name}-")))
-                && p.extension().is_some_and(|x| x == "opproj")
-                && !p.to_string_lossy().ends_with("-recovery.opproj")
-        })
+        .filter(|p| belongs_to_project(p, &name))
         .collect();
     mine.sort();
     while mine.len() > keep {
@@ -134,6 +150,52 @@ mod tests {
         assert_eq!(stamp(UNIX_EPOCH), "19700101-000000");
         let t = UNIX_EPOCH + std::time::Duration::from_secs(1_790_000_000);
         assert_eq!(stamp(t), "20260921-141320");
+    }
+
+    #[test]
+    fn retention_preserves_other_projects_and_recovery_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("A-19700101-000000.opproj");
+        let old_backup = dir.path().join("A-19700101-000000.opproj.bak");
+        std::fs::write(&old, "old").unwrap();
+        std::fs::write(&old_backup, "backup").unwrap();
+        let preserved = [
+            "A-B-19700101-000000.opproj",
+            "A-recovery.opproj",
+            "A-not-a-timestamp.opproj",
+            "A-19700101-000000.opproj.bak.other",
+        ];
+        for file in preserved {
+            std::fs::write(dir.path().join(file), file).unwrap();
+        }
+        let saved = write_project(dir.path(), "A", 1, &op_core::Project::new("A")).unwrap();
+        assert!(saved.exists());
+        assert!(op_project::native::load(&saved).is_ok());
+        assert!(!old.exists());
+        assert!(!old_backup.exists());
+        for file in preserved {
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join(file)).unwrap(),
+                file
+            );
+        }
+    }
+
+    #[test]
+    fn retention_matches_exact_generated_names() {
+        assert!(belongs_to_project(
+            Path::new("Project-A-20261006-120000.opproj"),
+            "Project-A"
+        ));
+        for file in [
+            "Project-A-B-20261006-120000.opproj",
+            "Project-A-20261006-120000.opproj.bak",
+            "Project-A-20261006-1200000.opproj",
+            "Project-A-20261006-12000x.opproj",
+            "Project-A-recovery.opproj",
+        ] {
+            assert!(!belongs_to_project(Path::new(file), "Project-A"));
+        }
     }
 
     #[test]

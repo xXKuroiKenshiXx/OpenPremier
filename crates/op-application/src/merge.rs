@@ -71,7 +71,7 @@ impl Remap<'_> {
                 n.id = self.ids.clip();
                 self.clips.insert(c.id, n.id);
                 n.source = self.source(&c.source);
-                n.components = self.components(&c.components);
+                n.components = self.components(&c.components).into();
                 n.link = c
                     .link
                     .map(|l| *self.links.entry(l).or_insert_with(|| self.ids.link()));

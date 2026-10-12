@@ -195,6 +195,9 @@ pub(crate) fn export_details(
     if p.fps > 0.0 {
         ui.label(format!("{:.1} fps", p.fps));
     }
+    if !p.renderer.is_empty() {
+        ui.label(RichText::new(&p.renderer).color(theme::TEXT_DIM));
+    }
     if !p.encoder.is_empty() {
         ui.label(RichText::new(&p.encoder).color(theme::TEXT_DIM));
     }

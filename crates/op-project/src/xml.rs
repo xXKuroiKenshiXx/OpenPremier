@@ -188,7 +188,30 @@ fn resolve_entity(name: &str) -> Result<char, XmlError> {
     })
 }
 
-/// Parses a UTF-8 document.
+/// Appends decoded text only after checking the per-node and document byte budgets.
+fn append_text(
+    node: &mut Node,
+    value: &str,
+    total_text: &mut usize,
+    limits: Limits,
+) -> Result<(), XmlError> {
+    let node_len = node
+        .text
+        .len()
+        .checked_add(value.len())
+        .ok_or(XmlError::Limit("text length"))?;
+    let total_len = total_text
+        .checked_add(value.len())
+        .ok_or(XmlError::Limit("text length"))?;
+    if node_len > limits.max_text_len || total_len > limits.max_text_len.saturating_mul(4) {
+        return Err(XmlError::Limit("text length"));
+    }
+    *total_text = total_len;
+    node.text.push_str(value);
+    Ok(())
+}
+
+/// Parses a UTF-8 document; all text representations share decoded UTF-8 byte budgets.
 pub fn parse(text: &str, limits: Limits) -> Result<Doc, XmlError> {
     let mut reader = quick_xml::Reader::from_str(text);
     let cfg = reader.config_mut();
@@ -273,28 +296,25 @@ pub fn parse(text: &str, limits: Limits) -> Result<Doc, XmlError> {
             Event::Text(t) => {
                 if let Some(&cur) = stack.last() {
                     let s = t.xml10_content();
-                    total_text += s.len();
-                    if nodes[cur].text.len() + s.len() > limits.max_text_len
-                        || total_text > limits.max_text_len * 4
-                    {
-                        return Err(XmlError::Limit("text length"));
-                    }
-                    nodes[cur].text.push_str(&s);
+                    append_text(&mut nodes[cur], &s, &mut total_text, limits)?;
                 }
             }
             Event::CData(t) => {
                 if let Some(&cur) = stack.last() {
                     let s: &str = &t;
-                    if nodes[cur].text.len() + s.len() > limits.max_text_len {
-                        return Err(XmlError::Limit("text length"));
-                    }
-                    nodes[cur].text.push_str(s);
+                    append_text(&mut nodes[cur], s, &mut total_text, limits)?;
                 }
             }
             Event::GeneralRef(r) => {
                 let c = resolve_entity(&r)?;
                 if let Some(&cur) = stack.last() {
-                    nodes[cur].text.push(c);
+                    let mut utf8 = [0; 4];
+                    append_text(
+                        &mut nodes[cur],
+                        c.encode_utf8(&mut utf8),
+                        &mut total_text,
+                        limits,
+                    )?;
                 }
             }
             Event::Comment(_) | Event::Decl(_) | Event::PI(_) => {}
@@ -406,6 +426,40 @@ mod tests {
         assert_eq!(d.text_at(0, "b"), Some("t<uA"));
         assert!(d.child(0, "c").is_some());
         assert_eq!(d.location(d.path(0, "b").unwrap()), "a/b");
+    }
+
+    #[test]
+    fn text_budgets_include_cdata_and_decoded_references() {
+        let limits = Limits {
+            max_text_len: 2,
+            ..Limits::default()
+        };
+        for text in [
+            "<a>&amp;&amp;&amp;</a>",
+            "<a>a&amp;<![CDATA[b]]></a>",
+            "<a><b><![CDATA[aa]]></b><b><![CDATA[aa]]></b><b><![CDATA[aa]]></b><b><![CDATA[aa]]></b><b><![CDATA[aa]]></b></a>",
+        ] {
+            assert_eq!(parse(text, limits), Err(XmlError::Limit("text length")));
+        }
+        assert_eq!(
+            parse(
+                "<a>&#x1F600;</a>",
+                Limits {
+                    max_text_len: 3,
+                    ..Limits::default()
+                }
+            ),
+            Err(XmlError::Limit("text length"))
+        );
+        let doc = parse(
+            "<a>a&amp;<![CDATA[b]]>&#x1F600;</a>",
+            Limits {
+                max_text_len: 7,
+                ..Limits::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(doc.text(0), "a&b😀");
     }
 
     #[test]

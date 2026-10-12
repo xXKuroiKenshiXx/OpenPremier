@@ -5,7 +5,7 @@
 //! new proxy and an unchanged one is not made twice. The editor attaches each finished proxy to
 //! its asset; playback uses it while proxies are enabled, export always uses the original.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,9 +29,10 @@ pub struct ProxyProgress {
 
 #[derive(Default)]
 struct Shared {
-    queue: VecDeque<(Arc<MediaAsset>, PathBuf)>,
+    queue: VecDeque<(Arc<MediaAsset>, PathBuf, u32)>,
+    pending: HashSet<AssetId>,
     progress: ProxyProgress,
-    results: Vec<(AssetId, Result<PathBuf, String>)>,
+    results: Vec<(Arc<MediaAsset>, Result<PathBuf, String>)>,
     running: bool,
 }
 
@@ -43,9 +44,19 @@ pub struct ProxyQueue {
 
 /// Where the proxy of `asset` goes.
 pub fn proxy_path(folder: &Path, asset: &MediaAsset) -> PathBuf {
+    proxy_path_at(folder, asset, SHORT_SIDE)
+}
+
+pub fn proxy_path_at(folder: &Path, asset: &MediaAsset, short_side: u32) -> PathBuf {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     asset.path.hash(&mut h);
-    SHORT_SIDE.hash(&mut h);
+    short_side.hash(&mut h);
+    asset.frame_rate().map(|r| (r.num, r.den)).hash(&mut h);
+    asset
+        .video
+        .as_ref()
+        .map(|v| (v.index, v.frames))
+        .hash(&mut h);
     if let Ok(m) = std::fs::metadata(&asset.path) {
         m.len().hash(&mut h);
         if let Ok(t) = m.modified() {
@@ -85,19 +96,23 @@ pub fn unsuitable(asset: &MediaAsset) -> Option<&'static str> {
 impl ProxyQueue {
     /// Queues assets; the worker starts if it is not running.
     pub fn add(&self, jobs: Vec<(Arc<MediaAsset>, PathBuf)>) {
+        self.add_at(jobs, SHORT_SIDE);
+    }
+
+    pub fn add_at(&self, jobs: Vec<(Arc<MediaAsset>, PathBuf)>, short_side: u32) {
         if jobs.is_empty() {
             return;
         }
         let start = {
             let mut s = self.shared.lock();
             for j in jobs {
-                if !s.queue.iter().any(|(a, _)| a.id == j.0.id) {
-                    s.queue.push_back(j);
+                if s.pending.insert(j.0.id) {
+                    s.queue.push_back((j.0, j.1, short_side));
                     s.progress.total += 1;
                 }
             }
-            let start = !s.running;
-            s.running = true;
+            let start = !s.running && !s.queue.is_empty();
+            s.running |= start;
             start
         };
         if start {
@@ -108,7 +123,14 @@ impl ProxyQueue {
                 .name("proxies".into())
                 .spawn(move || work(&shared, &cancel));
             if spawned.is_err() {
-                self.shared.lock().running = false;
+                let mut s = self.shared.lock();
+                while let Some((asset, _, _)) = s.queue.pop_front() {
+                    s.results
+                        .push((asset, Err("could not start the proxy worker".into())));
+                }
+                s.pending.clear();
+                s.running = false;
+                s.progress = ProxyProgress::default();
             }
         }
     }
@@ -125,11 +147,21 @@ impl ProxyQueue {
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
         let mut s = self.shared.lock();
-        s.queue.clear();
+        while let Some((asset, _, _)) = s.queue.pop_front() {
+            s.pending.remove(&asset.id);
+        }
     }
 
     /// Finished proxies (or failures) since the last call.
     pub fn take_results(&self) -> Vec<(AssetId, Result<PathBuf, String>)> {
+        self.take_identified_results()
+            .into_iter()
+            .map(|(a, r)| (a.id, r))
+            .collect()
+    }
+
+    /// Source identity prevents undo/relink attaching a proxy to different media.
+    pub fn take_identified_results(&self) -> Vec<(Arc<MediaAsset>, Result<PathBuf, String>)> {
         std::mem::take(&mut self.shared.lock().results)
     }
 }
@@ -151,17 +183,21 @@ fn work(shared: &Mutex<Shared>, cancel: &AtomicBool) {
                 }
             }
         };
-        let Some((asset, dst)) = next else { return };
-        let result = make(&asset, &dst, shared, cancel);
+        let Some((asset, dst, short_side)) = next else {
+            return;
+        };
+        let result = make(&asset, &dst, short_side, shared, cancel);
         match &result {
             Ok(p) => log::info!("proxy for {}: {}", asset.path, p.display()),
             Err(e) => log::warn!("no proxy for {}: {e}", asset.path),
         }
         let mut s = shared.lock();
+        s.pending.remove(&asset.id);
         s.progress.done += 1;
-        s.results.push((asset.id, result));
+        s.results.push((asset, result));
         if cancel.load(Ordering::Relaxed) {
             s.queue.clear();
+            s.pending.clear();
         }
     }
 }
@@ -169,6 +205,7 @@ fn work(shared: &Mutex<Shared>, cancel: &AtomicBool) {
 fn make(
     asset: &MediaAsset,
     dst: &Path,
+    short_side: u32,
     shared: &Mutex<Shared>,
     cancel: &AtomicBool,
 ) -> Result<PathBuf, String> {
@@ -187,7 +224,7 @@ fn make(
             rate,
             v.frames,
             dst,
-            SHORT_SIDE,
+            short_side,
             &mut |f| {
                 shared.lock().progress.fraction = f;
                 !cancel.load(Ordering::Relaxed)
@@ -218,6 +255,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("cam one.mp4");
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: 1280,
             height: 720,

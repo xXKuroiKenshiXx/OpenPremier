@@ -3,6 +3,45 @@
 use super::*;
 
 impl State {
+    pub(crate) fn copy_frame(&mut self) {
+        let Some(sid) = self.ed.active else {
+            return;
+        };
+        let snapshot = self.ed.snapshot();
+        self.ed.media.set_assets(snapshot.assets.iter());
+        let source = op_application::media::ExactFrames {
+            service: self.ed.media.clone(),
+        };
+        let frame = self.renderer.render(&op_render::Request {
+            project: &snapshot,
+            sequence: sid,
+            time: self.ed.playhead(),
+            scale: 1.0,
+            source: &source,
+        });
+        let width = frame.width as usize;
+        let height = frame.height as usize;
+        let pixels = self.renderer.rgba8(&frame);
+        self.renderer.recycle(frame);
+        let pixels = match pixels {
+            Ok(pixels) => pixels,
+            Err(e) => {
+                self.ed.error(e);
+                return;
+            }
+        };
+        let result = arboard::Clipboard::new().and_then(|mut cb| {
+            cb.set_image(arboard::ImageData {
+                width,
+                height,
+                bytes: std::borrow::Cow::Owned(pixels),
+            })
+        });
+        match result {
+            Ok(()) => self.ed.info(t("Frame copied to clipboard")),
+            Err(e) => self.ed.error(e.to_string()),
+        }
+    }
     /// Pastes media from the system clipboard. Returns false when it holds none.
     pub(crate) fn paste_media(&mut self) -> bool {
         use crate::paste::{self, Found, Job, Payload};
@@ -13,7 +52,7 @@ impl State {
         // tracks, else at the playhead (with no sequence open, the media starts one)
         let place = match self.tl.pointer_target(self.ctx.cumulative_pass_nr()) {
             Some((t, track)) => Some((Some(t), track)),
-            None => Some((None, None)),
+            None => Some((Some(self.ed.playhead()), None)),
         };
         let bin = self.ed.project.root;
         let (data, name, source) = match found {
@@ -22,6 +61,7 @@ impl State {
                 if let Some((at, track)) = place {
                     self.ed.place_after_import.extend(files.iter().map(|f| {
                         op_application::Placement {
+                            sequence: self.ed.active,
                             path: f.clone(),
                             at,
                             track,
@@ -60,6 +100,7 @@ impl State {
         let folder = self.paste_folder();
         let auto = self.ed.prefs.paste_always && self.ed.prefs.paste_folder.is_some();
         self.pastes.push(Job {
+            sequence: self.ed.active,
             id,
             name: name.clone(),
             source,
@@ -118,6 +159,7 @@ impl State {
                     log::info!("pasted image saved to {}", path.display());
                     if let Some((at, track)) = job.place {
                         self.ed.place_after_import.push(op_application::Placement {
+                            sequence: job.sequence,
                             path: path.clone(),
                             at,
                             track,

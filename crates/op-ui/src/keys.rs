@@ -130,6 +130,7 @@ pub fn handle(s: &mut State, ctx: &egui::Context) {
         ctx.memory_mut(|m| m.surrender_focus(id));
     }
     let events = ctx.input(|i| i.events.clone());
+    let has_paste_event = events.iter().any(|e| matches!(e, Event::Paste(_)));
     let mut handled: Vec<(Modifiers, Key)> = Vec::new();
     let mut clipboard = false;
     for e in events {
@@ -144,24 +145,28 @@ pub fn handle(s: &mut State, ctx: &egui::Context) {
                 if key == Key::K {
                     s.k_down = pressed;
                 }
-                // with only an image (or files) in the clipboard egui sends no paste event;
-                // the release of Ctrl+V is the only trace of the shortcut
-                if key == Key::V && !pressed && modifiers.command && !modifiers.shift && !typing {
-                    if std::mem::take(&mut s.paste_seen) {
+                // Pixels can arrive without Event::Paste. Handle key down and release-only
+                // platforms, suppress repeats, and remember the chord if Ctrl is released first.
+                if key == Key::V
+                    && let Some(fire) = s.paste_gesture.key(
+                        pressed,
+                        modifiers.command,
+                        modifiers.shift,
+                        repeat,
+                        has_paste_event,
+                    )
+                {
+                    if typing {
                         continue;
                     }
-                    let found =
-                        s.ed.keymap
-                            .lookup(s.focus.context(), &Chord::parse("Ctrl+V").unwrap())
-                            .or_else(|| {
-                                s.ed.keymap.lookup(
-                                    op_application::keymap::GLOBAL,
-                                    &Chord::parse("Ctrl+V").unwrap(),
-                                )
-                            })
-                            .map(str::to_string);
-                    if found.as_deref() == Some("cmd.edit.paste") {
-                        s.command("cmd.edit.paste");
+                    handled.push((modifiers, key));
+                    if fire
+                        && let Some(cmd) =
+                            s.ed.keymap
+                                .lookup(s.focus.context(), &Chord::parse("Ctrl+V").unwrap())
+                                .map(str::to_string)
+                    {
+                        s.command(&cmd);
                     }
                     continue;
                 }
@@ -206,10 +211,16 @@ pub fn handle(s: &mut State, ctx: &egui::Context) {
                     Chord::parse("Ctrl+X").unwrap()
                 })
             }
-            Event::Paste(_) if !typing => {
+            Event::Paste(_) => {
+                if typing {
+                    let _ = s.paste_gesture.clipboard(ctx.input(|i| i.modifiers.shift));
+                    continue;
+                }
                 clipboard = true;
-                s.paste_seen = true;
                 let m = ctx.input(|i| i.modifiers);
+                if !s.paste_gesture.clipboard(m.shift) {
+                    continue;
+                }
                 Some(if m.shift {
                     Chord::parse("Ctrl+Shift+V").unwrap()
                 } else {
@@ -219,6 +230,9 @@ pub fn handle(s: &mut State, ctx: &egui::Context) {
             _ => None,
         };
         let Some(c) = c else { continue };
+        if !typing && crate::plugins::hotkey(s, &c) {
+            continue;
+        }
         if c.key == "Escape" && !c.ctrl && !c.shift && !c.alt {
             s.escape();
             continue;

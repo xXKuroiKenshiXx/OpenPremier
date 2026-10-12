@@ -20,7 +20,6 @@ use crate::{theme, widgets};
 const HEADER_W: f32 = 178.0;
 const WHEEL_ZOOM_STEP: f64 = 1.20;
 const RULER_H: f32 = 30.0;
-const TABS_H: f32 = 24.0;
 const SCROLL_H: f32 = 14.0;
 const EDGE: f32 = 7.0;
 const SECTION_GAP: f32 = 6.0;
@@ -127,8 +126,8 @@ pub struct TimelineView {
 impl Default for TimelineView {
     fn default() -> Self {
         TimelineView {
-            video_height: 46.0,
-            audio_height: 46.0,
+            video_height: 58.0,
+            audio_height: 58.0,
             drag: None,
             preview: None,
             snap_at: None,
@@ -411,7 +410,10 @@ pub fn page(s: &mut State, dir: f64) {
 
 pub fn show(s: &mut State, ui: &mut Ui) {
     let full = ui.max_rect();
-    let tabs = Rect::from_min_size(full.min, vec2(full.width(), TABS_H));
+    let tabs = Rect::from_min_size(
+        full.min,
+        vec2(full.width(), ui.spacing().interact_size.y + 6.0),
+    );
     sequence_tabs(s, ui, tabs);
     let rest = Rect::from_min_max(pos2(full.min.x, tabs.max.y), full.max);
     let Some(sid) = s.ed.active else {
@@ -524,7 +526,7 @@ fn sequence_tabs(s: &mut State, ui: &mut Ui, r: Rect) {
         let active = s.ed.active == Some(sid);
         let galley = ui.painter().layout_no_wrap(
             name,
-            FontId::proportional(12.0),
+            theme::body_font(ui),
             if active {
                 theme::TEXT_BRIGHT
             } else {
@@ -1127,6 +1129,15 @@ fn draw_clip(
         pos2(x1.max(x0 + 1.0), row.top + row.h - 1.0),
     );
     let (fill, stroke) = clip_colors(c, selected);
+    // a clip a few pixels wide (a zoomed-out timeline of thousands of cuts) is only its color:
+    // names, thumbnails and waveforms could not be seen and cost the most to draw
+    if r.width() < 6.0 {
+        painter.rect_filled(r, 0.0, fill);
+        if selected {
+            painter.rect_filled(r, 0.0, stroke.gamma_multiply(0.6));
+        }
+        return;
+    }
     painter.rect_filled(r, 2.0, fill);
     let inner = painter.with_clip_rect(r.intersect(g.body));
     let name_y = r.min.y + 2.0;
@@ -1135,6 +1146,7 @@ fn draw_clip(
         // head thumbnail (off in Ultra Performance)
         if profile.thumbnails
             && row.h >= 34.0
+            && r.width() >= 40.0
             && let ClipSource::Asset { asset, .. } = c.source
             && let Some(a) = s.ed.project.asset(asset)
             && a.has_video()
@@ -1163,6 +1175,15 @@ fn draw_clip(
         }
     } else if profile.waveforms && row.h >= 24.0 {
         waveform(s, &inner, g, r, c);
+    }
+    if r.width() < 24.0 {
+        painter.rect_stroke(
+            r,
+            2.0,
+            Stroke::new(if selected { 1.5 } else { 1.0 }, stroke),
+            StrokeKind::Inside,
+        );
+        return;
     }
     let mut name = c.name.clone();
     if !c.speed.is_normal() || c.reverse {
@@ -1344,13 +1365,18 @@ fn body(s: &mut State, ui: &mut Ui, g: &Geo, sid: SequenceId, seq: &Sequence, vi
         );
     }
     let selection = s.ed.selection.clone();
+    let selected: std::collections::HashSet<ClipId> = selection.clips.iter().copied().collect();
+    // only the clips in view: clips are sorted and never overlap, so the first visible one is
+    // found by bisection and drawing stops past the right edge
+    let (view_from, view_to) = (g.t(g.body.min.x), g.t(g.body.max.x));
     for row in &g.rows {
         if row.top > area.max.y || row.top + row.h < area.min.y {
             continue;
         }
         let Some(tr) = seq.track(row.r) else { continue };
-        for c in &tr.clips {
-            draw_clip(s, ui, &painter, g, row, c, selection.clips.contains(&c.id));
+        let first = tr.clips.partition_point(|c| c.end() <= view_from);
+        for c in tr.clips[first..].iter().take_while(|c| c.start <= view_to) {
+            draw_clip(s, ui, &painter, g, row, c, selected.contains(&c.id));
         }
         for x in &tr.transitions {
             let rg = x.range();

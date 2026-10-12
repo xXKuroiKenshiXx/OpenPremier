@@ -63,6 +63,8 @@ enum DockAction {
 
 /// Everything the panels share. Panels are functions over this state.
 pub(crate) struct State {
+    pub plugins: crate::plugins::PluginsView,
+    pub curves: crate::motion_curves::CurvesView,
     pub ed: Editor,
     pub gpu: Arc<op_render::Gpu>,
     pub renderer: op_render::Renderer,
@@ -71,8 +73,7 @@ pub(crate) struct State {
     pub focus: Focus,
     pub focused_panel: Option<Panel>,
     pub k_down: bool,
-    /// A paste event arrived during the current Ctrl+V press (the release must not paste again).
-    pub paste_seen: bool,
+    pub paste_gesture: crate::paste_gesture::PasteGesture,
     /// Pasted images waiting to be saved and imported.
     pub pastes: Vec<crate::paste::Job>,
     next_paste: u64,
@@ -110,7 +111,8 @@ pub(crate) struct State {
     /// Tab button rectangles of this frame (for the active-tab underline).
     tab_rects: HashMap<Panel, egui::Rect>,
     dock_action: Option<DockAction>,
-    thumbs: HashMap<(AssetId, i64), egui::TextureHandle>,
+    /// Thumbnail textures and the frame each was last drawn in.
+    thumbs: HashMap<(AssetId, i64), (egui::TextureHandle, u64)>,
     title: String,
     allow_close: bool,
     quit: bool,
@@ -185,7 +187,7 @@ impl App {
         };
         i18n::set(lang);
         let ui_scale = prefs.ui_scale;
-        theme::apply(&cc.egui_ctx, ui_scale);
+        theme::apply(&cc.egui_ctx, ui_scale, prefs.ui_density);
         op_render::text::set_user_fonts_dir(dirs.data.join("Fonts"));
         crate::fonts::install(&cc.egui_ctx, &prefs.ui_font);
         egui_extras_install(&cc.egui_ctx);
@@ -207,6 +209,8 @@ impl App {
             },
         );
         let mut s = State {
+            plugins: Default::default(),
+            curves: Default::default(),
             ed,
             gpu,
             renderer,
@@ -215,7 +219,7 @@ impl App {
             focus: Focus::Timeline,
             focused_panel: Some(Panel::Timeline),
             k_down: false,
-            paste_seen: false,
+            paste_gesture: Default::default(),
             pastes: Vec::new(),
             next_paste: 1,
             caption_options: Default::default(),
@@ -447,6 +451,22 @@ impl App {
 impl State {
     /// Runs a command: UI commands here, editing commands in the editor.
     pub fn command(&mut self, cmd: &str) {
+        if cmd == "op.plugins" {
+            self.plugins.open = true;
+            return;
+        }
+        if cmd == "op.plugins.curves" {
+            if self.ed.prefs.plugins.motion_curves {
+                self.curves.open = true;
+            }
+            return;
+        }
+        if cmd == "op.plugins.actions" {
+            if self.ed.prefs.plugins.quick_actions {
+                self.plugins.actions_open = true;
+            }
+            return;
+        }
         // media in the system clipboard (copied images, files, image links) wins over clips
         // copied inside the program: copying clips replaces the system clipboard with text
         if cmd == "cmd.edit.paste" && self.paste_media() {
@@ -464,6 +484,7 @@ impl State {
             }
             "cmd.file.savecopy" => self.save_copy(),
             "cmd.file.import" => self.import_dialog(),
+            "op.file.premiereversion" => self.dialogs.push(Dialog::PremiereVersion(Box::default())),
             "cmd.file.exit" => self.quit = true,
             "cmd.file.closepanel" => {
                 if self.focus == Focus::Timeline
@@ -484,6 +505,7 @@ impl State {
                 }
             }
             "cmd.export.frame" => self.export_frame(),
+            "op.clipboard.copyframe" => self.copy_frame(),
             "op.captions.transcribe" => {
                 if self.ed.active.is_none() {
                     self.ed.error(t("Open a sequence first"));
@@ -949,13 +971,22 @@ impl State {
         asset: AssetId,
         index: i64,
     ) -> Option<egui::TextureId> {
-        if let Some(h) = self.thumbs.get(&(asset, index)) {
+        let frame = self.ctx.cumulative_pass_nr();
+        if let Some((h, used)) = self.thumbs.get_mut(&(asset, index)) {
+            *used = frame;
             return Some(h.id());
         }
         let a = self.ed.media.asset(asset)?;
         let img = self.ed.media.thumbnail(&a, index)?;
-        if self.thumbs.len() > 600 {
-            self.thumbs.clear();
+        if self.thumbs.len() >= 600 {
+            // drop the least recently drawn quarter; clearing everything made a timeline with
+            // hundreds of thumbnails in view upload them all again every frame
+            let mut by_age: Vec<((AssetId, i64), u64)> =
+                self.thumbs.iter().map(|(k, (_, u))| (*k, *u)).collect();
+            by_age.sort_by_key(|(_, u)| *u);
+            for (k, _) in by_age.into_iter().take(150) {
+                self.thumbs.remove(&k);
+            }
         }
         let color = egui::ColorImage::from_rgba_unmultiplied(
             [img.width as usize, img.height as usize],
@@ -967,7 +998,7 @@ impl State {
             egui::TextureOptions::LINEAR,
         );
         let id = h.id();
-        self.thumbs.insert((asset, index), h);
+        self.thumbs.insert((asset, index), (h, frame));
         Some(id)
     }
 
@@ -1141,9 +1172,14 @@ impl State {
         if self.meters.active() {
             ctx.request_repaint_after(Duration::from_millis(33));
         }
-        if (self.ed.prefs.ui_scale - self.ui_scale).abs() > 0.001 {
+        if (self.ed.prefs.ui_scale - self.ui_scale).abs() > 0.001
+            || (ctx.style_of(egui::Theme::Dark).spacing.interact_size.y
+                - self.ed.prefs.ui_density.control_height())
+            .abs()
+                > 0.001
+        {
             self.ui_scale = self.ed.prefs.ui_scale;
-            theme::apply(ctx, self.ui_scale);
+            theme::apply(ctx, self.ui_scale, self.ed.prefs.ui_density);
         }
         let exporting = self.ed.exports.iter().any(|j| !j.finished());
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && exporting {
@@ -1256,11 +1292,11 @@ impl eframe::App for App {
             .frame(
                 egui::Frame::NONE
                     .fill(theme::PANEL_DARK)
-                    .inner_margin(egui::Margin::symmetric(6, 2)),
+                    .inner_margin(egui::Margin::symmetric(10, 5)),
             )
             .show(ui, |ui| self.menu_bar(ui));
         egui::Panel::bottom("status")
-            .exact_size(24.0)
+            .exact_size(ui.spacing().interact_size.y + 6.0)
             .frame(
                 egui::Frame::NONE
                     .fill(theme::PANEL_DARK)
@@ -1291,6 +1327,8 @@ impl eframe::App for App {
             ));
         }
         crate::dialogs::opening(&mut self.s, &ctx);
+        crate::plugins::show(&mut self.s, &ctx);
+        crate::motion_curves::show(&mut self.s, &ctx);
         self.apply_dock_action();
         self.s.end_frame(&ctx);
     }

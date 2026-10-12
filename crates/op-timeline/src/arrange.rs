@@ -1,6 +1,6 @@
 //! Moving, duplicating, clipboard, nesting, links, groups, tracks and markers.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use op_core::catalog::EffectKind;
@@ -25,11 +25,27 @@ pub struct MoveSpec {
 /// Collects clips plus linked partners and group members.
 fn expand(ed: &Ed, clips: &[ClipId]) -> Vec<ClipId> {
     let mut out = ed.with_links(clips);
+    // groups, then links of the group members, until nothing new joins
+    let mut group_of: HashMap<ClipId, GroupId> = HashMap::new();
+    let mut members: HashMap<GroupId, Vec<ClipId>> = HashMap::new();
+    for (_, c) in ed.seq.clips() {
+        if let Some(g) = c.group {
+            group_of.insert(c.id, g);
+            members.entry(g).or_default().push(c.id);
+        }
+    }
+    if members.is_empty() {
+        return out;
+    }
+    let mut seen: HashSet<ClipId> = out.iter().copied().collect();
+    let mut done: HashSet<GroupId> = HashSet::new();
     let mut i = 0;
     while i < out.len() {
-        for g in ed.seq.grouped(out[i]) {
-            for l in ed.with_links(&[g]) {
-                if !out.contains(&l) {
+        if let Some(g) = group_of.get(&out[i])
+            && done.insert(*g)
+        {
+            for l in ed.with_links(&members[g]) {
+                if seen.insert(l) {
                     out.push(l);
                 }
             }

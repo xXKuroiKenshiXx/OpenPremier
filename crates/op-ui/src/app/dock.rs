@@ -97,7 +97,14 @@ impl TabViewer for Viewer<'_> {
             &text,
             20.0,
             egui::TextFormat {
-                font_id: egui::FontId::new(12.5, crate::fonts::strong()),
+                font_id: egui::FontId::new(
+                    match self.s.ed.prefs.ui_density {
+                        op_application::prefs::UiDensity::Compact => 12.5,
+                        op_application::prefs::UiDensity::Comfortable => 14.0,
+                        op_application::prefs::UiDensity::Spacious => 15.5,
+                    },
+                    crate::fonts::strong(),
+                ),
                 ..Default::default()
             },
         );
@@ -139,6 +146,20 @@ impl TabViewer for Viewer<'_> {
         self.s.panel_ui(ui, *tab);
     }
 
+    fn tab_style_override(
+        &self,
+        tab: &Panel,
+        global: &egui_dock::TabStyle,
+    ) -> Option<egui_dock::TabStyle> {
+        if matches!(tab, Panel::Tools | Panel::Meters) {
+            let mut style = global.clone();
+            style.tab_body.inner_margin = egui::Margin::same(0);
+            Some(style)
+        } else {
+            None
+        }
+    }
+
     fn scroll_bars(&self, _tab: &Panel) -> [bool; 2] {
         [false, false]
     }
@@ -153,7 +174,7 @@ pub(crate) fn dock_style(style: &egui::Style) -> egui_dock::Style {
     d.main_surface_border_stroke = Stroke::NONE;
     // panel headers: flat, with room between the names and a quiet line under the bar
     d.tab_bar.bg_fill = theme::PANEL_DARK;
-    d.tab_bar.height = 30.0;
+    d.tab_bar.height = style.spacing.interact_size.y + 10.0;
     d.tab_bar.hline_color = theme::BG;
     d.tab_bar.inner_margin = egui::Margin::symmetric(6, 0);
     d.tab.spacing = 4.0;
@@ -161,7 +182,7 @@ pub(crate) fn dock_style(style: &egui::Style) -> egui_dock::Style {
     d.tab.hline_below_active_tab_name = false;
     d.tab.tab_body.bg_fill = theme::PANEL;
     d.tab.tab_body.stroke = Stroke::NONE;
-    d.tab.tab_body.inner_margin = egui::Margin::same(0);
+    d.tab.tab_body.inner_margin = egui::Margin::same(6);
     d.tab.tab_body.hidden_tab_bar_drag_height = Some(8.0);
     for s in [
         &mut d.tab.active,
@@ -185,10 +206,28 @@ pub(crate) fn dock_style(style: &egui::Style) -> egui_dock::Style {
     d.tab.hovered.outline_color = theme::PANEL_DARK;
     d.buttons.show_tab_bar_color = theme::LINE;
     d.buttons.show_tab_bar_active_color = theme::ACCENT;
-    d.separator.width = 3.0;
+    d.separator.width = 5.0;
     d.separator.extra = 40.0;
     d.separator.color_idle = theme::BG;
     d.separator.color_hovered = theme::ACCENT_DIM;
     d.separator.color_dragged = theme::ACCENT;
     d
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dock_headers_grow_with_density_and_keep_content_padding() {
+        let ctx = egui::Context::default();
+        for density in [
+            op_application::prefs::UiDensity::Compact,
+            op_application::prefs::UiDensity::Comfortable,
+            op_application::prefs::UiDensity::Spacious,
+        ] {
+            crate::theme::apply(&ctx, 1.0, density);
+            let dock = super::dock_style(&ctx.style_of(egui::Theme::Dark));
+            assert!(dock.tab_bar.height > density.control_height());
+            assert!(dock.tab.tab_body.inner_margin.left >= 6);
+        }
+    }
 }

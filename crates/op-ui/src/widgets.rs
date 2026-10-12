@@ -144,7 +144,10 @@ pub fn diamond(ui: &Ui, center: Pos2, r: f32, fill: Color32, selected: bool) {
 /// A collapsible section title. Returns whether it is open.
 pub fn section(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool) -> bool {
     let mut open: bool = ui.data(|d| d.get_temp(id)).unwrap_or(default_open);
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::row_height(ui)),
+        Sense::click(),
+    );
     ui.painter().rect_filled(rect, 0.0, theme::RAISED);
     let icon = if open {
         crate::icons::Icon::ChevronDown
@@ -153,16 +156,17 @@ pub fn section(ui: &mut Ui, id: egui::Id, title: &str, default_open: bool) -> bo
     };
     crate::icons::draw(
         ui.painter(),
-        Rect::from_min_size(rect.min + vec2(2.0, 2.0), vec2(16.0, 16.0)),
+        Rect::from_center_size(
+            egui::pos2(rect.min.x + 12.0, rect.center().y),
+            vec2(16.0, 16.0),
+        ),
         icon,
         theme::TEXT_DIM,
     );
     // long titles are cut at the row's end (full title on hover)
-    let galley = ui.painter().layout_no_wrap(
-        title.to_string(),
-        FontId::proportional(12.5),
-        theme::TEXT_BRIGHT,
-    );
+    let galley =
+        ui.painter()
+            .layout_no_wrap(title.to_string(), theme::body_font(ui), theme::TEXT_BRIGHT);
     let text_rect = Rect::from_min_max(rect.min + vec2(20.0, 0.0), rect.max - vec2(4.0, 0.0));
     let cut = galley.size().x > text_rect.width();
     ui.painter()
@@ -184,7 +188,7 @@ pub fn dim_label(ui: &mut Ui, text: impl Into<String>) {
     ui.label(
         egui::RichText::new(text.into())
             .color(theme::TEXT_DIM)
-            .size(11.5),
+            .size(theme::small_font(ui).size),
     );
 }
 

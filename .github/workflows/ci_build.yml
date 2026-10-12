@@ -29,7 +29,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential libasound2-dev pkg-config clang libclang-dev mesa-vulkan-drivers
+          sudo apt-get install -y -qq build-essential libasound2-dev pkg-config clang libclang-dev mesa-vulkan-drivers libfontconfig1-dev libssl-dev
       - name: Install macOS build dependencies
         if: runner.os == 'macOS'
         run: brew install ffmpeg pkg-config
@@ -54,9 +54,32 @@ jobs:
           cargo metadata --format-version 1 --no-deps >/dev/null
       - name: Lint
         run: cargo xtask lint
+      - name: Build and lint the isolated fframes worker (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cargo fmt --manifest-path tools/fframes-worker/Cargo.toml --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask cargo clippy --locked --manifest-path tools/fframes-worker/Cargo.toml --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo xtask cargo build --release --locked --manifest-path tools/fframes-worker/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PATH = "$PWD/third_party/ffmpeg/bin;$env:PATH"
+          & tools/fframes-worker/target/release/OpenPremier-FFrames.exe --self-test --backend cpu
+      - name: Build and lint the isolated fframes worker (Linux and macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --manifest-path tools/fframes-worker/Cargo.toml --check
+          cargo xtask cargo clippy --locked --manifest-path tools/fframes-worker/Cargo.toml --all-targets -- -D warnings
+          cargo xtask cargo build --release --locked --manifest-path tools/fframes-worker/Cargo.toml
+          export LD_LIBRARY_PATH="$PWD/third_party/ffmpeg/lib:${LD_LIBRARY_PATH:-}"
+          tools/fframes-worker/target/release/OpenPremier-FFrames --self-test --backend cpu
       - name: Test
         # effects and exports are tested on a real adapter (software Vulkan on Linux, Metal on
         # macOS) instead of being skipped
         env:
           OPENPREMIER_REQUIRE_GPU: ${{ runner.os != 'Windows' && '1' || '' }}
+          OPENPREMIER_FFRAMES_WORKER: ${{ format('{0}/tools/fframes-worker/target/release/OpenPremier-FFrames{1}', github.workspace, runner.os == 'Windows' && '.exe' || '') }}
+          OPENPREMIER_REQUIRE_FFRAMES: '1'
         run: cargo xtask test

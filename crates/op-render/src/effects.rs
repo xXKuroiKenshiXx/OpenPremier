@@ -27,9 +27,74 @@ impl Renderer {
         clip_time: f32,
         seq_size: (u32, u32),
     ) -> Tex {
+        if !self.hdr_working {
+            return self.effect_709(fx, img, req, layer, clip_time, seq_size);
+        }
+        let compatible = self.working_709(&img);
+        self.put(img);
+        let processed = self.effect_709(fx, compatible, req, layer, clip_time, seq_size);
+        let hdr = self.input_hdr(&processed, Transfer::Bt709, Primaries::Bt709);
+        self.put(processed);
+        hdr
+    }
+
+    fn effect_709(
+        &mut self,
+        fx: &EvalComponent,
+        img: Tex,
+        req: &Request,
+        layer: &ClipLayer,
+        clip_time: f32,
+        seq_size: (u32, u32),
+    ) -> Tex {
         let s = req.scale;
         let seed = self.frame_seed();
         match fx.effect.as_str() {
+            "op.video.manga_camera" => self.single(
+                "fs_manga_camera",
+                img,
+                P::new()
+                    .f(fx.choice("direction") as f32)
+                    .f(fx.f32("travel") / 100.0)
+                    .f(fx.f32("zoom") / 100.0)
+                    .f(fx.f32("tilt"))
+                    .f(fx.f32("duration"))
+                    .b(fx.bool("smooth"))
+                    .b(fx.bool("transparent"))
+                    .time(layer.elapsed as f32),
+            ),
+            "op.video.parallax" => self.single(
+                "fs_parallax",
+                img,
+                P::new()
+                    .v2(fx.point("camera"))
+                    .f(fx.f32("depth"))
+                    .f(fx.f32("strength") / 100.0)
+                    .f(fx.f32("zoom") / 100.0)
+                    .f(fx.f32("tilt_x"))
+                    .f(fx.f32("tilt_y"))
+                    .b(fx.bool("transparent")),
+            ),
+            "op.video.manga_frame" => self.single(
+                "fs_manga_frame",
+                img,
+                P::new()
+                    .f(fx.f32("horizontal") / 100.0)
+                    .f(fx.f32("vertical") / 100.0)
+                    .f(fx.f32("feather") / 100.0)
+                    .f(fx.f32("vignette") / 100.0)
+                    .rgb(fx.color("color"))
+                    .f(fx.f32("opacity") / 100.0),
+            ),
+            "op.video.dialogue_occlusion" => self.single(
+                "fs_dialogue_occlusion",
+                img,
+                P::new()
+                    .v2(fx.point("center"))
+                    .v2(fx.point("size"))
+                    .f(fx.f32("feather") / 100.0)
+                    .f(fx.choice("shape") as f32),
+            ),
             catalog::TEXT => self.draw_text(fx, img, s, None),
             catalog::SHAPE => self.draw_shape(fx, img, s),
             catalog::CAPTION => self.draw_caption(fx, img, s, clip_time as f64, layer.duration),

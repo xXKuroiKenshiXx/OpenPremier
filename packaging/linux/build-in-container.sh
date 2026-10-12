@@ -4,7 +4,7 @@
 # (/work/src), the Rust toolchain, the cargo cache and the build directory.
 set -euo pipefail
 
-dnf -y -q install alsa-lib-devel clang-devel llvm-devel pkgconf-pkg-config xz file >/dev/null
+dnf -y -q install alsa-lib-devel clang-devel llvm-devel pkgconf-pkg-config fontconfig-devel openssl-devel xz file >/dev/null
 
 export CARGO_HOME=/work/cargo
 export RUSTUP_HOME=/work/rustup

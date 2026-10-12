@@ -107,6 +107,9 @@ impl State {
     }
 
     pub(crate) fn after_open(&mut self) {
+        self.pastes.clear();
+        self.dialogs
+            .retain(|d| !matches!(d, Dialog::PasteMedia { .. }));
         self.tl = self.tl.fresh();
         self.program.reset();
         self.source.reset();

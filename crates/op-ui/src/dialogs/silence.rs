@@ -116,7 +116,7 @@ fn method_param(ui: &mut Ui, m: &mut Method) -> bool {
             ui.label(t("Silence Below"));
             changed |= ui
                 .add(
-                    egui::Slider::new(threshold_db, -70.0..=-10.0)
+                    egui::Slider::new(threshold_db, -100.0..=0.0)
                         .suffix(" dB")
                         .fixed_decimals(0),
                 )
@@ -210,6 +210,7 @@ pub(super) fn silence_dialog(s: &mut State, ctx: &egui::Context, form: &mut Sile
                             .clicked()
                         {
                             form.settings.sound = p.params;
+                            form.settings.by_sound = true;
                             form.settings.words = p.text.clone();
                             form.settings.by_words = p.words;
                         }
@@ -390,6 +391,38 @@ pub(super) fn silence_dialog(s: &mut State, ctx: &egui::Context, form: &mut Sile
 
 /// Everything the dialog sets except what to look at: shared with the batch dialog.
 pub(super) fn settings_panel(ui: &mut Ui, settings: &mut SilenceSettings) {
+    ui.horizontal(|ui| {
+        if ui.button(t("OpenJumpCuts Preset")).clicked() {
+            settings.sound = sil::jumpcut::Settings::default()
+                .params()
+                .expect("valid built-in settings");
+            settings.by_sound = true;
+            settings.by_words = false;
+        }
+        if ui.button(t("Load OpenJumpCuts Settings...")).clicked()
+            && let Some(path) = rfd::FileDialog::new()
+                .add_filter("JSON", &["json"])
+                .pick_file()
+        {
+            let result = std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|text| sil::jumpcut::Settings::from_json(&text));
+            match result {
+                Ok(params) => {
+                    settings.sound = params;
+                    settings.by_sound = true;
+                    settings.by_words = false;
+                }
+                Err(e) => {
+                    rfd::MessageDialog::new()
+                        .set_title(t("Load OpenJumpCuts Settings..."))
+                        .set_description(e)
+                        .set_level(rfd::MessageLevel::Error)
+                        .show();
+                }
+            }
+        }
+    });
     ui.checkbox(&mut settings.by_sound, t("Find Silences in the Sound"))
         .on_hover_text(t("Quiet stretches, measured on the audio."));
     ui.add_enabled_ui(settings.by_sound, |ui| {
@@ -415,20 +448,28 @@ pub(super) fn settings_panel(ui: &mut Ui, settings: &mut SilenceSettings) {
                 method_param(ui, &mut settings.sound.method);
                 ui.label(t("Shortest Silence"));
                 ui.add(
-                    egui::Slider::new(&mut settings.sound.min_silence, 0.05..=3.0)
+                    egui::Slider::new(&mut settings.sound.min_silence, 0.01..=60.0)
                         .suffix(" s")
                         .logarithmic(true),
                 )
                 .on_hover_text(t("Shorter pauses stay."));
                 ui.end_row();
                 ui.label(t("Shortest Sound"));
-                ui.add(egui::Slider::new(&mut settings.sound.min_sound, 0.0..=0.5).suffix(" s"))
-                    .on_hover_text(t("Shorter sounds (clicks, breaths) count as silence."));
+                ui.add(
+                    egui::Slider::new(&mut settings.sound.min_sound, 0.0..=60.0)
+                        .suffix(" s")
+                        .logarithmic(true),
+                )
+                .on_hover_text(t("Shorter sounds (clicks, breaths) count as silence."));
                 ui.end_row();
                 ui.label(t("Keep Before Cut"));
                 let mut ms = settings.sound.pad_before * 1000.0;
                 if ui
-                    .add(egui::Slider::new(&mut ms, 0.0..=500.0).suffix(" ms"))
+                    .add(
+                        egui::Slider::new(&mut ms, 0.0..=30000.0)
+                            .suffix(" ms")
+                            .logarithmic(true),
+                    )
                     .on_hover_text(t("Air left after a word, before the cut."))
                     .changed()
                 {
@@ -438,7 +479,11 @@ pub(super) fn settings_panel(ui: &mut Ui, settings: &mut SilenceSettings) {
                 ui.label(t("Keep After Cut"));
                 let mut ms = settings.sound.pad_after * 1000.0;
                 if ui
-                    .add(egui::Slider::new(&mut ms, 0.0..=500.0).suffix(" ms"))
+                    .add(
+                        egui::Slider::new(&mut ms, 0.0..=30000.0)
+                            .suffix(" ms")
+                            .logarithmic(true),
+                    )
                     .on_hover_text(t("Air left before the next word, after the cut."))
                     .changed()
                 {
@@ -865,6 +910,32 @@ fn cut_list(ui: &mut Ui, form: &mut SilenceForm, cuts: &[sil::Cut], toggle: &mut
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drawing_the_settings_does_not_clamp_openjumpcuts_values() {
+        let ctx = egui::Context::default();
+        for sound in [
+            sil::jumpcut::Settings::default().params().unwrap(),
+            sil::jumpcut::Settings {
+                silence_cutoff: -95.0,
+                remove_over: 15.0,
+                keep_over: 2.0,
+                padding: 3.0,
+            }
+            .params()
+            .unwrap(),
+        ] {
+            let mut settings = SilenceSettings {
+                sound,
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                settings_panel(ui, &mut settings);
+            });
+            output.textures_delta.clear();
+            assert_eq!(settings.sound, sound);
+        }
+    }
 
     fn key(words: bool, neural: bool, model: ModelSize) -> Key {
         Key {

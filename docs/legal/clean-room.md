@@ -1,5 +1,10 @@
 # Clean-room interoperability policy
 
+**2026-10-07 audit:** prior private binary/JavaScript implementation research contradicted
+the restrictions below. Clean-room provenance is not verified. Preserve the evidence and trace
+derived changes before closing distribution review; see [the audit](audit-2026-10-07.md).
+Continue implementation from public specifications and independent fixtures under this policy.
+
 OpenPremier documents and reimplements observable behavior and interoperability formats without using Adobe source code or protected implementation assets. This policy is not legal advice.
 
 ## Allowed research

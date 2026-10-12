@@ -8,6 +8,7 @@ use std::process::Command;
 use crate::util::{self, Result};
 
 pub fn release(args: &[String]) -> Result {
+    crate::legal::check_release()?;
     let wanted = args
         .iter()
         .find(|a| !a.starts_with("--"))

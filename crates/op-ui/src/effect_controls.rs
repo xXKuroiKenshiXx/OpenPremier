@@ -13,8 +13,6 @@ use crate::i18n::{t, tn};
 use crate::icons::{self, Icon};
 use crate::{theme, widgets};
 
-const ROW_H: f32 = 24.0;
-
 #[derive(Default)]
 pub struct EcView {
     pub fonts: Vec<String>,
@@ -246,7 +244,7 @@ pub fn show(s: &mut State, ui: &mut Ui) {
             .auto_shrink(false)
             .show(ui, |ui| {
                 ui.set_width(body.width());
-                let comps: Vec<Component> = cx.clip.components.clone();
+                let comps: Vec<Component> = cx.clip.components.to_vec();
                 let video = cx.clip.is_video();
                 ui.add_space(2.0);
                 widgets::dim_label(
@@ -300,7 +298,7 @@ pub fn show(s: &mut State, ui: &mut Ui) {
 /// about half of the parameter area, so values line up and long names are shortened instead of
 /// running under the values.
 fn set_label_width(ui: &Ui, comps: &[Component], left_width: f32) {
-    let font = FontId::proportional(12.0);
+    let font = theme::body_font(ui);
     let widest = comps
         .iter()
         .filter_map(|c| c.def())
@@ -319,9 +317,11 @@ fn set_label_width(ui: &Ui, comps: &[Component], left_width: f32) {
 
 /// Paints `text` inside `r`, cut at its right edge; returns whether it was cut.
 fn clipped_text(ui: &Ui, r: Rect, text: &str, size: f32, color: Color32) -> bool {
-    let galley = ui
-        .painter()
-        .layout_no_wrap(text.to_string(), FontId::proportional(size), color);
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        FontId::proportional(size * theme::body_font(ui).size / 12.5),
+        color,
+    );
     let cut = galley.size().x > r.width();
     ui.painter()
         .with_clip_rect(r.intersect(ui.clip_rect()))
@@ -377,7 +377,10 @@ fn component_ui(
     let mut open: bool = ui
         .data(|d| d.get_temp(open_id))
         .unwrap_or(comp.is_fixed() || count <= 4);
-    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+    let (row, resp) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::row_height(ui)),
+        Sense::click(),
+    );
     ui.painter().rect_filled(
         Rect::from_min_max(row.min, pos2(split, row.max.y)),
         0.0,
@@ -610,7 +613,7 @@ pub fn params_ui(
     }
 }
 
-fn row_height(spec: &ParamSpec) -> f32 {
+fn row_height(ui: &Ui, spec: &ParamSpec) -> f32 {
     match spec.kind {
         ParamKind::Text {
             multiline: true, ..
@@ -620,7 +623,7 @@ fn row_height(spec: &ParamSpec) -> f32 {
             space: PointSpace::Wheel,
             ..
         } => 96.0,
-        _ => ROW_H,
+        _ => theme::row_height(ui),
     }
 }
 
@@ -635,7 +638,7 @@ fn param_row(
     split: f32,
     indent: f32,
 ) {
-    let h = row_height(spec);
+    let h = row_height(ui, spec);
     let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     let left = Rect::from_min_max(row.min, pos2(split, row.max.y));
     let prm = comp
@@ -694,7 +697,10 @@ fn param_row(
     let label_w = column.unwrap_or(140.0).min(room).max(40.0);
     let label_rect = Rect::from_min_max(
         pos2(left.min.x + indent + 4.0, left.min.y),
-        pos2(left.min.x + indent + label_w - 4.0, left.min.y + ROW_H),
+        pos2(
+            left.min.x + indent + label_w - 4.0,
+            left.min.y + theme::row_height(ui),
+        ),
     );
     let name = tn(spec.label);
     if clipped_text(ui, label_rect, &name, 12.0, theme::TEXT) {
@@ -739,7 +745,7 @@ fn param_row(
             &prm,
             Rect::from_min_max(
                 pos2(split - 6.0 - nav_w, left.min.y),
-                pos2(split - 4.0, left.min.y + ROW_H),
+                pos2(split - 4.0, left.min.y + theme::row_height(ui)),
             ),
         );
     }
@@ -753,7 +759,10 @@ fn param_row(
             comp,
             &prm,
             lane,
-            Rect::from_min_max(pos2(lane.x0, row.min.y), pos2(lane.x1, row.min.y + ROW_H)),
+            Rect::from_min_max(
+                pos2(lane.x0, row.min.y),
+                pos2(lane.x1, row.min.y + theme::row_height(ui)),
+            ),
         );
     }
 }
@@ -886,6 +895,15 @@ fn keyframe_lane(
             s.ed.seal();
         }
         resp.context_menu(|ui| {
+            if s.ed.prefs.plugins.motion_curves && ui.button(t("Motion Curves...")).clicked() {
+                s.curves.choose(
+                    cx.clip.id,
+                    comp.id,
+                    &prm.key,
+                    i.min(prm.keys.len().saturating_sub(2)),
+                );
+                ui.close();
+            }
             for choice in InterpChoice::ALL {
                 if ui.button(t(interp_label(choice))).clicked() {
                     let (sid, clip, id, key, at) =
@@ -1372,7 +1390,7 @@ fn dummy_clip() -> Clip {
         link: None,
         group: None,
         label: Label::None,
-        components: Vec::new(),
+        components: Vec::new().into(),
         gain_db: 0.0,
         scale_to_frame: false,
         channels: None,

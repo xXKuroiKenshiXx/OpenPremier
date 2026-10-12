@@ -54,6 +54,8 @@ pub fn process(
 ) {
     let ch = channels.max(1);
     match fx.effect.as_str() {
+        // Source-time mapping is performed by the mixer before the effect stack.
+        "op.audio.tape_stop" => {}
         "op.audio.amplify" => {
             let gl = db_to_gain(fx.f64("left")) as f32;
             let gr = db_to_gain(fx.f64("right")) as f32;
@@ -380,20 +382,30 @@ pub fn process(
         }
         "op.audio.pitch_shifter" => {
             let semis = fx.f64("semitones") + fx.f64("cents") / 100.0;
-            if semis.abs() > 1e-6 {
+            let stereo = fx.f64("stereo_cents");
+            if semis.abs() > 1e-6 || stereo > 0.0 {
                 if !matches!(state, FxState::Pitch(_)) {
                     *state = FxState::Pitch(Box::default());
                 }
                 if let FxState::Pitch(p) = state {
-                    p.process(
+                    let window = match fx.choice("quality") {
+                        0 => 20.0,
+                        2 => 100.0,
+                        _ => 40.0,
+                    };
+                    p.process_options(
                         buf,
                         ch,
                         rate,
                         2f64.powf(semis / 12.0),
                         (fx.f64("mix") / 100.0) as f32,
+                        window,
+                        stereo,
                     );
                 }
             }
+            let gain = db_to_gain(fx.f64("output")) as f32;
+            buf.iter_mut().for_each(|s| *s *= gain);
         }
         "op.audio.radio_voice" => {
             // band limits, a presence peak and how hard the little speaker is driven

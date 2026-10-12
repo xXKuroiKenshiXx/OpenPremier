@@ -23,6 +23,15 @@ jobs:
           test -n "$version"
           test "v$version" = "$GITHUB_REF_NAME"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Report the state of the distribution review
+        # technical alpha releases go out with the review still open; the run shows it as a warning
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+          review = json.loads(Path('docs/legal/distribution-review.json').read_text())
+          if review.get('status') != 'approved':
+              print('::warning::Distribution review is ' + str(review.get('status')) + ': see docs/legal/audit-2026-10-07.md')
 
   windows:
     needs: validate-tag

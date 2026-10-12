@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "retrieved_on": "2026-10-07",
+  "status": "partial",
+  "scope": "Pinned upstream source candidates retained locally; not yet full native corresponding source.",
+  "sources": [
+    {
+      "component": "ffmpeg",
+      "repository": "https://github.com/FFmpeg/FFmpeg",
+      "revision": "ff48edd8b29406ec2614db1137e972e77b15a10b",
+      "source_archive_url": "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/ff48edd8b29406ec2614db1137e972e77b15a10b",
+      "archive_sha256": "2fcd84e0b69fff94d4c56f1fd79b7096e677e06d823fa56266fdc09ee390a16d",
+      "archive_bytes": 16924034,
+      "correspondence_status": "candidate: compare build inputs and enabled dependency sources before legal approval"
+    },
+    {
+      "component": "skia",
+      "repository": "https://github.com/rust-skia/skia",
+      "revision": "61e7ca4e99062cdd0ab69445d5963fb3365778f6",
+      "source_archive_url": "https://codeload.github.com/rust-skia/skia/tar.gz/61e7ca4e99062cdd0ab69445d5963fb3365778f6",
+      "archive_sha256": "8401d0de878582a03abc1029bb62330aea58cda89904ae6ab187302e6d48ba5d",
+      "archive_bytes": 69917223,
+      "correspondence_status": "candidate: compare build inputs and enabled dependency sources before legal approval"
+    },
+    {
+      "component": "ffmpeg-build-recipes",
+      "repository": "https://github.com/BtbN/FFmpeg-Builds",
+      "revision": "16523e260106182950d7072b6ea1401808f68a50",
+      "source_archive_url": "https://codeload.github.com/BtbN/FFmpeg-Builds/tar.gz/16523e260106182950d7072b6ea1401808f68a50",
+      "archive_sha256": "64629f80beb6e8775971995f4529c9da15c08167559f3525b6cfa7e6a9117f92",
+      "archive_bytes": 106554,
+      "correspondence_status": "candidate: compare build inputs and enabled dependency sources before legal approval"
+    }
+  ]
+}

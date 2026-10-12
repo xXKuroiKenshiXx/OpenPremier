@@ -392,7 +392,7 @@ impl Editor {
                     link: None,
                     group: None,
                     label: Label::Lavender,
-                    components,
+                    components: components.into(),
                     gain_db: 0.0,
                     scale_to_frame: false,
                     channels: None,

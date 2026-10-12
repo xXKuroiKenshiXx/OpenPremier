@@ -176,11 +176,16 @@ pub struct MediaService {
     proxy_assets: Mutex<HashMap<AssetId, Arc<MediaAsset>>>,
     failed: Mutex<HashMap<AssetId, String>>,
     thumbs: Mutex<HashMap<(AssetId, i64), Option<Arc<Image>>>>,
+    /// Finished thumbnails, oldest first, so the cache stays within `THUMBS_KEPT`.
+    thumb_order: Mutex<VecDeque<(AssetId, i64)>>,
     thumb_queue: Mutex<VecDeque<(Arc<MediaAsset>, i64)>>,
     thumb_wake: Condvar,
     /// Increments whenever something new is ready (frames, audio, thumbnails), for repaints.
     pub generation: AtomicU64,
 }
+
+/// Thumbnails kept in memory (about 90 MB).
+const THUMBS_KEPT: usize = 400;
 
 impl MediaService {
     pub fn new(cache_dir: PathBuf, frame_budget: usize) -> Arc<MediaService> {
@@ -205,6 +210,7 @@ impl MediaService {
             proxy_assets: Mutex::new(HashMap::new()),
             failed: Mutex::new(HashMap::new()),
             thumbs: Mutex::new(HashMap::new()),
+            thumb_order: Mutex::new(VecDeque::new()),
             thumb_queue: Mutex::new(VecDeque::new()),
             thumb_wake: Condvar::new(),
             generation: AtomicU64::new(0),
@@ -741,6 +747,7 @@ impl MediaService {
     fn forget_id(&self, asset: AssetId) {
         self.failed.lock().remove(&asset);
         self.thumbs.lock().retain(|(a, _), _| *a != asset);
+        self.thumb_order.lock().retain(|(a, _)| *a != asset);
         let mut c = self.frames.lock();
         let keys: Vec<(AssetId, i64)> = c
             .frames
@@ -781,7 +788,19 @@ impl MediaService {
             })
             .ok()
             .map(Arc::new);
-            self.thumbs.lock().insert((asset.id, index), img);
+            {
+                let mut t = self.thumbs.lock();
+                t.insert((asset.id, index), img);
+                // each thumbnail is 320x180 RGBA (230 KB): scrolling a timeline of thousands
+                // of cuts would otherwise keep gigabytes of them
+                let mut order = self.thumb_order.lock();
+                order.push_back((asset.id, index));
+                while order.len() > THUMBS_KEPT {
+                    if let Some(old) = order.pop_front() {
+                        t.remove(&old);
+                    }
+                }
+            }
             self.bump();
         }
     }
@@ -797,8 +816,11 @@ impl MediaService {
                 t.insert(key, None);
                 drop(t);
                 let mut q = self.thumb_queue.lock();
-                if q.len() > 200 {
-                    q.pop_front();
+                if q.len() > 200
+                    && let Some((old, i)) = q.pop_front()
+                {
+                    // forgotten, so it is asked for again when it comes back into view
+                    self.thumbs.lock().remove(&(old.id, i));
                 }
                 q.push_back((asset.clone(), index));
                 self.thumb_wake.notify_one();
@@ -913,6 +935,8 @@ mod tests {
         let path = dir.path().join("t.mp4");
         let (w, h) = (64u32, 64u32);
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: h,
@@ -971,6 +995,8 @@ mod tests {
         let path = dir.path().join("rev.mp4");
         let (w, h) = (64u32, 64u32);
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: h,
@@ -1024,6 +1050,8 @@ mod tests {
         let path = dir.path().join("hw.mp4");
         let (w, h) = (320u32, 240u32);
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: h,

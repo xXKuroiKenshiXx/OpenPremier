@@ -464,7 +464,7 @@ pub fn import(text: &str, name: &str) -> Result<(Project, SequenceId), ProjectEr
                 link: None,
                 group: None,
                 label: Label::None,
-                components,
+                components: components.into(),
                 gain_db: 0.0,
                 scale_to_frame: false,
                 channels: (kind == TrackKind::Audio).then_some(ChannelLayout::Stereo),

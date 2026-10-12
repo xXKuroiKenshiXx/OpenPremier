@@ -1,6 +1,6 @@
 # Roadmap
 
-**Updated:** 2026-10-04 (version 0.9.0)<br>
+**Updated:** 2026-10-07 (version 0.10.0)<br>
 **Companion documents:** [implementation-status.md](implementation-status.md) (technical status and
 validation gaps), [CHANGELOG.md](../CHANGELOG.md) (what each release changed),
 [drift-comparison.md](drift-comparison.md) (lessons from another open-source editor).
@@ -8,7 +8,61 @@ validation gaps), [CHANGELOG.md](../CHANGELOG.md) (what each release changed),
 This file is the user-facing plan: what an editor can already do, and what comes next, in order of
 priority. Items move from "Next" to "Done" in the release that ships them.
 
+## Implemented in the current working tree: unreleased
+
+- HDR delivery selector: Rec.2100 PQ/HLG, BT.2020 10-bit HEVC/ProRes, real source/transfer
+  conversion, HDR10 mastering/CLL/FALL metadata, and fframes floating composition. Windows
+  Vulkan/DX12/WARP and Linux WSL software/Vulkan/fframes CPU exercised; Linux/macOS worker
+  packaging and CI added, Mac/AMD/Intel and interactive QA still unverified.
+  See [hdr-and-platform-acceptance.md](hdr-and-platform-acceptance.md).
+
+- Comfortable interface density by default, with Compact/Spacious choices, roomier dock headers,
+  controls, project/parameter rows and transport areas. Saved layouts and seventeen panels remain.
+- Automatic editing proxies after media import (opt-in), selectable 540p/720p/1080p short side,
+  background creation and source-identity guards. Exports retain original media; no enlargement.
+- Dependency copyright/license/NOTICE retention, pinned upstream attribution supplements,
+  application source snapshots and explicit distribution review. Native corresponding-source and
+  historical provenance review remain pending. See [legal/audit-2026-10-07.md](legal/audit-2026-10-07.md).
+
+- Export renderer selector: native GPU/software and isolated fframes CPU/Skia GPU workers,
+  preserving native audio/codecs and rational frame rates. An explicit RGBA16F hybrid bridge
+  shares all 92 native effects, 43 transitions, 27 blends, captions, mattes/adjustments and
+  source interpretation. Preferences now select asynchronous Source/Program fframes previews.
+  The independent SVG subset remains available for compatible 8-bit exports. Hardware/platform
+  QA, interactive monitor QA, HDR grading/creative-node acceptance and texture sharing remain. Full integration criteria:
+  [fframes-completion.md](fframes-completion.md). See [render-engines.md](render-engines.md).
+
+- Caption start/end editing and three MCP tools, preserving word timings in one undo step.
+- Six-channel audio mixing and explicit downmix, including nested masters, playback and scrub.
+- Recovery write acknowledgments/cancellation, concurrent native saves, bounded model validation
+  and saved-state history identity. See [audit-2026-10-06.md](audit-2026-10-06.md).
+
+- Split at Playhead and Merge Selected in the existing Captions panel: frame-aware, word timing
+  preserved, one undo step, unsupported combinations rejected. See [caption-editing.md](caption-editing.md).
+- Invalid speeds/missing required source identities reported during project validation.
+- Autosave retention matches one project's generated names; XML budgets include CDATA/entities.
+- GPU readback failures propagate to export, MCP and clipboard; failed/abandoned buffers discarded.
+- Source audit and reconstruction priorities in [audit-2026-10-06.md](audit-2026-10-06.md).
+
 ## Done
+
+### Native extensions and image animation (0.10)
+
+- Bundled Motion Curves, Folder Portals and Quick Actions, independently enabled in Preferences.
+- Offline Plugin Browser without a catalog; no external binary plugin host yet.
+- Bezier/value/speed editing, saved easing presets and native bounce keyframes.
+- Local effect/transition/preset/command palette, favorites, hiding, macros and optional shortcuts.
+- Bitmap Ctrl+V event fixes, frozen asynchronous paste destinations and Copy Frame to Clipboard.
+- Pitch Shifter window/interpolation/stereo controls and deterministic native Tape Stop / Slowdown.
+- GPU Manga Camera 3D, Parallax, frames/vignettes, dialogue occlusion and Page Turn. Layered PNG/text
+  compositing supports partially hidden dialogue; automatic segmentation is not implemented.
+
+### Compatibility additions (0.10)
+
+- Partial Premiere import from gzip or plain UTF-8 XML, independent of serialization-version numbers.
+- File > Downgrade Adobe Premiere Project and `--downgrade-prproj`: preserve original XML and patch a new copy's Project version, with no overwrite. This does not translate newer features.
+- Load Premiere Sequence Preset: partial `.sqpreset` settings import for progressive sequences.
+- Native OpenJumpCuts preset and JSON settings loading in timeline and batch silence dialogs.
 
 ### Editing
 
@@ -103,8 +157,8 @@ priority. Items move from "Next" to "Done" in the release that ships them.
   besides the usual ones; pasting puts media at the pointer's place on the timeline.
 
 - Native `.opproj`, OTIO, FCP XML and EDL interchange; partial read-only `.prproj` import.
-- Windows ZIP, Linux AppImage and macOS disk images (Apple silicon and Intel), installable and
-  updatable from [OpenHub](https://github.com/xXKuroiKenshiXx/OpenHub).
+- Windows ZIP, Linux AppImage and macOS disk images (Apple silicon and Intel); updating from
+  inside the program is planned.
 - Spanish and English interface, `.kys` keyboard shortcut import, crash recovery, log viewer.
 
 ## Next
@@ -119,13 +173,14 @@ editor shows are valuable for the same audience; see [drift-comparison.md](drift
   wgpu-hal interop per backend.
 - **Render cache for heavy sections** (Premiere's "Render In to Out"): render effect-heavy ranges
   once to an intermediate file and play that.
-- **Automatic proxies on import** as a preference (with a size choice: 540p, 720p, 1080p).
+- Automatic proxy preferences are implemented in the unreleased tree above; validate broader
+  camera-media/color/interpretation cases before presenting universal proxy compatibility.
 - **Effect thumbnails** in the Effects panel rendered on the current frame (Drift).
 
 ### 2. Titles, captions and graphics
 
-- **Caption editor:** split and merge captions and edit their times in the Captions panel
-  (0.7 lists them with editable text and styles them all at once).
+- **Caption workflow:** extend the implemented split/merge/timing controls to measured
+  alignment and richer caption track/style interoperability.
 - **Exact word timing:** align each word to the audio (Whisper cross-attention or forced
   alignment) instead of spreading a timed phrase over its words; faster transcription on the
   GPU (candle with CUDA or Metal).
@@ -152,7 +207,8 @@ editor shows are valuable for the same audience; see [drift-comparison.md](drift
 - Auto-ducking of music under speech.
 - Voice clean-up: noise reduction, de-esser, de-reverb; a local AI denoiser as an option (Drift
   uses DeepFilterNet).
-- VST3 plug-in hosting (needs a separate license decision).
+- VST3 plug-in hosting (current SDK is MIT; retain its notices and review individual plugin terms,
+  ABI isolation, latency and conformance before integration).
 
 ### 5. Assisted editing (local, optional models)
 

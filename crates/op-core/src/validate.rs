@@ -63,6 +63,7 @@ impl Project {
 
     /// Checks every invariant.
     pub fn validate(&self) -> EditResult {
+        validate_graph(self)?;
         for item in self.items.values() {
             if item.id != self.root {
                 let parent = item.parent.and_then(|p| self.item(p));
@@ -83,12 +84,167 @@ impl Project {
         }
         for seq in self.sequences.values() {
             validate_sequence(self, seq)?;
-            if seq.nested().any(|n| self.nests(n, seq.id)) {
-                return Err(EditError::Recursive);
-            }
         }
+        validate_sequence_graph(self)?;
         Ok(())
     }
+}
+
+/// The bin tree has two stored directions. Both must describe the same rooted tree.
+fn validate_graph(p: &Project) -> EditResult {
+    if p.ids.exhausted() {
+        return Err(EditError::Invalid(
+            "project identity allocator is exhausted".into(),
+        ));
+    }
+    let root = p
+        .item(p.root)
+        .ok_or_else(|| EditError::Invalid("project root is missing".into()))?;
+    if !root.is_bin() || root.parent.is_some() {
+        return Err(EditError::Invalid(
+            "project root must be a bin without a parent".into(),
+        ));
+    }
+    let mut owners = HashMap::new();
+    for (key, item) in &p.items {
+        valid_id(key.0)?;
+        if *key != item.id {
+            return Err(EditError::Invalid(format!(
+                "item map key {key} differs from {}",
+                item.id
+            )));
+        }
+        for marker in &item.markers {
+            valid_id(marker.id.0)?;
+        }
+        if let ItemKind::Bin { children } = &item.kind {
+            for child in children {
+                let entry = p
+                    .item(*child)
+                    .ok_or_else(|| EditError::NotFound(format!("bin {key} child {child}")))?;
+                if *child == p.root || entry.parent != Some(*key) {
+                    return Err(EditError::Invalid(format!(
+                        "bin {key} child {child} has a different parent"
+                    )));
+                }
+                if owners.insert(*child, *key).is_some() {
+                    return Err(EditError::Invalid(format!(
+                        "item {child} is listed more than once"
+                    )));
+                }
+            }
+        }
+    }
+    for key in p.items.keys().filter(|key| **key != p.root) {
+        if !owners.contains_key(key) {
+            return Err(EditError::Invalid(format!(
+                "item {key} is missing from its parent bin"
+            )));
+        }
+    }
+    // An internally consistent disconnected cycle still has reciprocal parent/child links.
+    let mut reached = HashSet::new();
+    let mut stack = vec![p.root];
+    while let Some(id) = stack.pop() {
+        if reached.insert(id) {
+            stack.extend(p.children(id));
+        }
+    }
+    if reached.len() != p.items.len() {
+        return Err(EditError::Invalid(
+            "bin hierarchy contains a disconnected cycle".into(),
+        ));
+    }
+    for (key, asset) in &p.assets {
+        valid_id(key.0)?;
+        if *key != asset.id {
+            return Err(EditError::Invalid(format!(
+                "asset map key {key} differs from {}",
+                asset.id
+            )));
+        }
+    }
+    for (key, seq) in &p.sequences {
+        valid_id(key.0)?;
+        if *key != seq.id {
+            return Err(EditError::Invalid(format!(
+                "sequence map key {key} differs from {}",
+                seq.id
+            )));
+        }
+        for marker in &seq.markers {
+            valid_id(marker.id.0)?;
+        }
+        for component in &seq.master {
+            valid_id(component.id.0)?;
+        }
+        for (_, track) in seq.all_tracks() {
+            valid_id(track.id.0)?;
+            for component in &track.components {
+                valid_id(component.id.0)?;
+            }
+            for transition in &track.transitions {
+                valid_id(transition.id.0)?;
+            }
+            for clip in &track.clips {
+                valid_id(clip.id.0)?;
+                if let Some(link) = clip.link {
+                    valid_id(link.0)?;
+                }
+                if let Some(group) = clip.group {
+                    valid_id(group.0)?;
+                }
+                for component in &clip.components {
+                    valid_id(component.id.0)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn valid_id(id: u64) -> EditResult {
+    if id == u64::MAX {
+        Err(EditError::Invalid(
+            "stored identity exhausts the project allocator".into(),
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Detect nested-sequence cycles in O(sequences + references), without recursive traversal.
+fn validate_sequence_graph(p: &Project) -> EditResult {
+    let mut incoming: HashMap<_, usize> = p.sequences.keys().map(|id| (*id, 0)).collect();
+    for seq in p.sequences.values() {
+        for nested in seq.nested() {
+            let count = incoming
+                .get_mut(&nested)
+                .ok_or_else(|| EditError::NotFound(format!("nested sequence {nested}")))?;
+            *count += 1;
+        }
+    }
+    let mut ready: Vec<_> = incoming
+        .iter()
+        .filter_map(|(id, n)| (*n == 0).then_some(*id))
+        .collect();
+    let mut removed = 0;
+    while let Some(id) = ready.pop() {
+        removed += 1;
+        if let Some(seq) = p.sequence(id) {
+            for nested in seq.nested() {
+                let count = incoming.get_mut(&nested).ok_or(EditError::Recursive)?;
+                *count -= 1;
+                if *count == 0 {
+                    ready.push(nested);
+                }
+            }
+        }
+    }
+    if removed != p.sequences.len() {
+        return Err(EditError::Recursive);
+    }
+    Ok(())
 }
 
 fn sequence_needs_normalizing(seq: &Sequence) -> bool {
@@ -247,6 +403,43 @@ fn validate_sequence(p: &Project, seq: &Sequence) -> EditResult {
             if c.start < SeqTime::ZERO {
                 return Err(EditError::Invalid("clip before the sequence start".into()));
             }
+            // Deserialization and direct model edits bypass Speed::new. Reject invalid ratios
+            // for every source kind, including holds, before any source-time arithmetic.
+            if c.speed.num <= 0 || c.speed.den <= 0 {
+                return Err(EditError::Invalid(format!(
+                    "clip {} speed must be positive",
+                    c.id
+                )));
+            }
+            // An absent source is not an unbounded source. In particular, stills and graphics
+            // legitimately return no available range, while a dangling identity must fail.
+            match &c.source {
+                ClipSource::Asset { asset, .. } if p.asset(*asset).is_none() => {
+                    return Err(EditError::NotFound(format!("clip {} asset {asset}", c.id)));
+                }
+                ClipSource::Sequence { sequence, .. } if p.sequence(*sequence).is_none() => {
+                    return Err(EditError::NotFound(format!(
+                        "clip {} sequence {sequence}",
+                        c.id
+                    )));
+                }
+                ClipSource::Generator { item } => match p.item(*item) {
+                    None => {
+                        return Err(EditError::NotFound(format!(
+                            "clip {} generator {item}",
+                            c.id
+                        )));
+                    }
+                    Some(item) if !matches!(item.kind, ItemKind::Synthetic { .. }) => {
+                        return Err(EditError::Invalid(format!(
+                            "clip {} generator is not a synthetic item",
+                            c.id
+                        )));
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
             if let Some(avail) = p.available(&c.source)
                 && c.hold.is_none()
             {
@@ -300,6 +493,159 @@ mod tests {
     use crate::catalog::EffectKind;
     use crate::color::Label;
 
+    #[test]
+    fn malformed_bin_graphs_never_commit() {
+        let mut p = Project::new("bins");
+        let bin = p.add_bin(p.root, "bin");
+        let leaf = p.add_bin(bin, "leaf");
+        p.validate().unwrap();
+        let before = p.clone();
+        for case in 0..11 {
+            let result = p.transact(|d| {
+                let root = d.root;
+                match case {
+                    0 => d.root = ItemId(999),
+                    1 => {
+                        d.item_mut(root).unwrap().kind = ItemKind::Synthetic {
+                            generator: Generator::BlackVideo,
+                            duration: Dur::ZERO,
+                        }
+                    }
+                    2 => d.item_mut(root).unwrap().parent = Some(bin),
+                    3 => d.item_mut(leaf).unwrap().parent = None,
+                    4 => d.item_mut(leaf).unwrap().parent = Some(leaf),
+                    5 | 6 | 7 | 10 => {
+                        let target = if case == 7 { root } else { bin };
+                        let child = match case {
+                            5 => ItemId(999),
+                            10 => root,
+                            _ => leaf,
+                        };
+                        let ItemKind::Bin { children } = &mut d.item_mut(target).unwrap().kind
+                        else {
+                            unreachable!()
+                        };
+                        children.push(child);
+                    }
+                    8 => d.item_mut(bin).unwrap().kind = ItemKind::Bin { children: vec![] },
+                    9 => {
+                        // A disconnected self-cycle with perfectly reciprocal links.
+                        d.item_mut(root).unwrap().kind = ItemKind::Bin { children: vec![] };
+                        d.item_mut(bin).unwrap().parent = Some(bin);
+                        d.item_mut(bin).unwrap().kind = ItemKind::Bin {
+                            children: vec![bin, leaf],
+                        };
+                    }
+                    _ => unreachable!(),
+                }
+                Ok(())
+            });
+            assert!(
+                matches!(result, Err(EditError::Invalid(_) | EditError::NotFound(_))),
+                "case {case}: {result:?}"
+            );
+            assert_eq!(p, before, "case {case} changed the original");
+        }
+    }
+
+    #[test]
+    fn item_asset_and_sequence_map_keys_must_match_stored_identities() {
+        let mut p = Project::new("maps");
+        let (sid, _) = p.add_sequence(p.root, "seq", SequenceSettings::default());
+        let mut bad = p.clone();
+        bad.item_mut(bad.root).unwrap().id = ItemId(999);
+        assert!(matches!(bad.validate(), Err(EditError::Invalid(_))));
+        let mut bad = p.clone();
+        bad.sequence_mut(sid).unwrap().id = SequenceId(999);
+        assert!(matches!(bad.validate(), Err(EditError::Invalid(_))));
+        let asset = crate::media::MediaAsset {
+            id: AssetId(0),
+            path: "offline.png".into(),
+            proxy: None,
+            kind: crate::media::MediaKind::Still,
+            video: None,
+            audio: vec![],
+            duration: Dur::ZERO,
+            interpretation: crate::media::Interpretation::default(),
+            file_size: 0,
+            modified_unix: 0,
+        };
+        let (aid, _) = p.add_asset(p.root, asset);
+        Arc::make_mut(p.assets.get_mut(&aid).unwrap()).id = AssetId(999);
+        assert!(matches!(p.validate(), Err(EditError::Invalid(_))));
+    }
+
+    #[test]
+    fn sequence_graph_accepts_shared_and_repeated_edges_but_rejects_cycles() {
+        let mut p = Project::new("sequence graph");
+        let (a, _) = p.add_sequence(p.root, "a", SequenceSettings::default());
+        let (b, _) = p.add_sequence(p.root, "b", SequenceSettings::default());
+        let (c, _) = p.add_sequence(p.root, "c", SequenceSettings::default());
+        let mut add = |outer, inner, start| {
+            let mut cl = clip(&mut p.ids, start, 1.0);
+            cl.source = ClipSource::Sequence {
+                sequence: inner,
+                item: None,
+            };
+            cl.hold = Some(SrcTime::ZERO);
+            p.sequence_mut(outer)
+                .unwrap()
+                .track_mut(TrackRef::video(0))
+                .unwrap()
+                .clips
+                .push(cl);
+        };
+        add(a, b, 0.0);
+        add(a, b, 1.0);
+        add(a, c, 2.0);
+        add(b, c, 0.0);
+        p.validate().unwrap();
+        for target in [a, b, c] {
+            let result = p.transact(|d| {
+                let mut cl = clip(&mut d.ids, 0.0, 1.0);
+                cl.source = ClipSource::Sequence {
+                    sequence: target,
+                    item: None,
+                };
+                cl.hold = Some(SrcTime::ZERO);
+                d.sequence_mut(c)
+                    .unwrap()
+                    .track_mut(TrackRef::video(0))
+                    .unwrap()
+                    .clips
+                    .push(cl);
+                Ok(())
+            });
+            assert!(matches!(result, Err(EditError::Recursive)), "{result:?}");
+        }
+    }
+
+    #[test]
+    fn refresh_of_exhausted_identity_is_bounded_and_validation_rejects_it() {
+        let mut p = Project::new("ids");
+        p.item_mut(p.root)
+            .unwrap()
+            .markers
+            .push(Marker::new(MarkerId(u64::MAX), SrcTime::ZERO));
+        assert!(p.validate().is_err());
+        p.refresh_ids();
+        assert!(p.validate().is_err());
+    }
+
+    #[test]
+    fn an_allocator_near_the_limit_rejects_multi_identity_edits_without_overflow() {
+        let mut p = Project::new("near identity limit");
+        p.ids.observe(u64::MAX - 2);
+        p.validate().unwrap();
+        let before = p.clone();
+        let result = p.transact(|d| {
+            d.add_sequence(d.root, "needs several IDs", SequenceSettings::default());
+            Ok(())
+        });
+        assert!(matches!(result, Err(EditError::Invalid(_))));
+        assert_eq!(p, before);
+    }
+
     pub fn clip(ids: &mut IdGen, start: f64, dur: f64) -> Clip {
         Clip {
             id: ids.clip(),
@@ -316,7 +662,7 @@ mod tests {
             link: None,
             group: None,
             label: Label::None,
-            components: default_components(EffectKind::VideoFixed, ids),
+            components: default_components(EffectKind::VideoFixed, ids).into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: None,
@@ -343,6 +689,162 @@ mod tests {
         });
         assert!(matches!(r, Err(EditError::Overlap(_))));
         assert!(p.sequence(sid).unwrap().video[0].clips.is_empty());
+    }
+
+    #[test]
+    fn invalid_speeds_are_rejected_without_committing() {
+        let mut p = Project::new("t");
+        let (sid, _) = p.add_sequence(p.root, "S", SequenceSettings::default());
+        let mut ids = p.ids.clone();
+        let c = clip(&mut ids, 0.0, 1.0);
+        let cid = c.id;
+        p.ids = ids;
+        p.sequence_mut(sid)
+            .unwrap()
+            .track_mut(TrackRef::video(0))
+            .unwrap()
+            .clips
+            .push(c);
+        let before = p.clone();
+        for (num, den) in [(0, 1), (1, 0), (-1, 1), (1, -1)] {
+            for source in [
+                ClipSource::Graphic,
+                ClipSource::Asset {
+                    asset: AssetId(999),
+                    item: None,
+                    stream: 0,
+                },
+                ClipSource::Sequence {
+                    sequence: sid,
+                    item: None,
+                },
+                ClipSource::Generator { item: p.root },
+            ] {
+                for hold in [None, Some(SrcTime::ZERO)] {
+                    let result = p.transact(|draft| {
+                        let c = draft.sequence_mut(sid).unwrap().clip_mut(cid).unwrap();
+                        c.speed = Speed { num, den };
+                        c.source = source.clone();
+                        c.hold = hold;
+                        Ok(())
+                    });
+                    assert_eq!(
+                        result.unwrap_err(),
+                        EditError::Invalid(format!("clip {cid} speed must be positive"))
+                    );
+                    assert_eq!(p, before);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dangling_clip_sources_are_rejected_without_committing() {
+        let mut p = Project::new("t");
+        let (sid, _) = p.add_sequence(p.root, "S", SequenceSettings::default());
+        let c = clip(&mut p.ids, 0.0, 1.0);
+        let cid = c.id;
+        p.sequence_mut(sid)
+            .unwrap()
+            .track_mut(TrackRef::video(0))
+            .unwrap()
+            .clips
+            .push(c);
+        let before = p.clone();
+        for source in [
+            ClipSource::Asset {
+                asset: AssetId(999),
+                item: None,
+                stream: 0,
+            },
+            ClipSource::Sequence {
+                sequence: SequenceId(999),
+                item: None,
+            },
+            ClipSource::Generator { item: ItemId(999) },
+            ClipSource::Generator { item: p.root },
+        ] {
+            let result = p.transact(|draft| {
+                draft
+                    .sequence_mut(sid)
+                    .unwrap()
+                    .clip_mut(cid)
+                    .unwrap()
+                    .source = source;
+                Ok(())
+            });
+            assert!(matches!(
+                result,
+                Err(EditError::NotFound(_) | EditError::Invalid(_))
+            ));
+            assert_eq!(p, before);
+        }
+    }
+
+    #[test]
+    fn unbounded_sources_and_optional_source_items_remain_valid() {
+        let mut p = Project::new("t");
+        let (sid, _) = p.add_sequence(p.root, "S", SequenceSettings::default());
+        let (asset, item) = p.add_asset(
+            p.root,
+            crate::media::MediaAsset {
+                id: AssetId(0),
+                path: "offline-still.png".into(),
+                proxy: None,
+                kind: crate::media::MediaKind::Still,
+                video: None,
+                audio: vec![],
+                duration: Dur::ZERO,
+                interpretation: crate::media::Interpretation::default(),
+                file_size: 0,
+                modified_unix: 0,
+            },
+        );
+        let generator = p.add_item(
+            p.root,
+            "Black",
+            ItemKind::Synthetic {
+                generator: Generator::BlackVideo,
+                duration: Dur::from_seconds(1.0),
+            },
+        );
+        let c = clip(&mut p.ids, 0.0, 60.0);
+        let cid = c.id;
+        p.sequence_mut(sid)
+            .unwrap()
+            .track_mut(TrackRef::video(0))
+            .unwrap()
+            .clips
+            .push(c);
+        for source in [
+            ClipSource::Graphic,
+            ClipSource::Generator { item: generator },
+            ClipSource::Asset {
+                asset,
+                item: Some(item),
+                stream: 0,
+            },
+            // A deleted origin item does not remove an asset referenced by another item.
+            ClipSource::Asset {
+                asset,
+                item: Some(ItemId(999)),
+                stream: 0,
+            },
+        ] {
+            assert!(p.available(&source).is_none());
+            assert!(
+                p.transact(|draft| {
+                    draft
+                        .sequence_mut(sid)
+                        .unwrap()
+                        .clip_mut(cid)
+                        .unwrap()
+                        .source = source;
+                    Ok(())
+                })
+                .is_ok()
+            );
+        }
     }
 
     #[test]

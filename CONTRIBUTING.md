@@ -15,8 +15,15 @@ cargo xtask lint
 ```
 
 The task runner downloads checksum-verified FFmpeg development files and libclang where needed.
-Direct `cargo` commands may fail to find those native dependencies; use `cargo xtask cargo -- ...`
+Direct `cargo` commands may fail to find those native dependencies; use `cargo xtask cargo ...`
 when a custom Cargo invocation is required.
+
+The optional fframes CPU worker has a separate Cargo graph under `tools/fframes-worker` to
+avoid conflicting native FFmpeg bindings. Build it with `cargo xtask cargo build --release
+--locked --manifest-path tools/fframes-worker/Cargo.toml`; format/lint that manifest separately.
+See [render-engines.md](docs/render-engines.md) for the required-worker test environment.
+Windows `dist` bundles the worker and checks both executable layouts; preserve/move existing
+versioned stages and ZIPs before packaging again, since existing destinations are refused.
 
 ## Pull requests
 

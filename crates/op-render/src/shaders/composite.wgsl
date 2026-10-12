@@ -166,13 +166,20 @@ fn fs_composite(in: VOut) -> @location(0) vec4<f32> {
     var d = textureSampleLevel(tex0, samp, in.uv, 0.0);
     var s = sample_clear(tex1, layer_uv(px)) * prm(6);
     let linear = prm(8) > 0.5;
+    let hdr = prm(10) > 0.5;
     if (linear) {
-        d = vec4<f32>(to_linear(d.rgb), d.a);
-        s = vec4<f32>(to_linear(s.rgb), s.a);
+        if (hdr) {
+            d = vec4<f32>(signed_linear(unpremul(d).rgb) * d.a, d.a);
+            s = vec4<f32>(signed_linear(unpremul(s).rgb) * s.a, s.a);
+        } else {
+            d = vec4<f32>(to_linear(d.rgb), d.a);
+            s = vec4<f32>(to_linear(s.rgb), s.a);
+        }
     }
     var o = blend(d, s, i32(prm(7) + 0.5), px);
     if (linear) {
-        o = vec4<f32>(from_linear(o.rgb), o.a);
+        if (hdr) { o = vec4<f32>(signed_encoding(unpremul(o).rgb) * o.a, o.a); }
+        else { o = vec4<f32>(from_linear(o.rgb), o.a); }
     }
     return o;
 }

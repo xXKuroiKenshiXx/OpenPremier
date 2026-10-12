@@ -1,8 +1,8 @@
 //! Encoding and muxing for export.
 //!
 //! The renderer hands over planar YUV frames already converted with the output matrix (BT.709
-//! limited range for delivery codecs) or RGBA for codecs with alpha, so no color conversion
-//! happens here beyond rearranging planes for encoders that need NV12.
+//! limited range for SDR, BT.2020 PQ/HLG for HDR) or RGBA for SDR alpha codecs. No transfer
+//! conversion happens here beyond rearranging planes for encoders that need NV12/P010.
 
 use std::path::Path;
 
@@ -140,6 +140,7 @@ fn step(what: impl std::fmt::Display) -> impl FnOnce(MediaError) -> MediaError {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum VideoInput {
     Yuv420p,
+    Yuv420p10,
     Yuv422p,
     Yuv422p10,
     Yuva444p10,
@@ -150,6 +151,7 @@ impl VideoInput {
     fn pixel(self) -> Pixel {
         match self {
             VideoInput::Yuv420p => Pixel::YUV420P,
+            VideoInput::Yuv420p10 => Pixel::YUV420P10LE,
             VideoInput::Yuv422p => Pixel::YUV422P,
             VideoInput::Yuv422p10 => Pixel::YUV422P10LE,
             VideoInput::Yuva444p10 => Pixel::YUVA444P10LE,
@@ -161,6 +163,7 @@ impl VideoInput {
     pub fn planes(self) -> (usize, u32, u32, usize) {
         match self {
             VideoInput::Yuv420p => (3, 1, 1, 1),
+            VideoInput::Yuv420p10 => (3, 1, 1, 2),
             VideoInput::Yuv422p => (3, 1, 0, 1),
             VideoInput::Yuv422p10 => (3, 1, 0, 2),
             VideoInput::Yuva444p10 => (4, 0, 0, 2),
@@ -174,14 +177,92 @@ impl VideoInput {
 
     pub fn bits(self) -> u32 {
         match self {
-            VideoInput::Yuv422p10 | VideoInput::Yuva444p10 => 10,
+            VideoInput::Yuv420p10 | VideoInput::Yuv422p10 | VideoInput::Yuva444p10 => 10,
             _ => 8,
         }
     }
 }
 
+/// Delivery encoding. HDR uses BT.2020 primaries and limited-range 10-bit YUV.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryColor {
+    #[default]
+    Bt709,
+    Pq,
+    Hlg,
+}
+
+impl DeliveryColor {
+    pub const ALL: [Self; 3] = [Self::Bt709, Self::Pq, Self::Hlg];
+    pub fn is_hdr(self) -> bool {
+        self != Self::Bt709
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bt709 => "SDR — Rec.709",
+            Self::Pq => "HDR — Rec.2100 PQ (10 bit)",
+            Self::Hlg => "HDR — Rec.2100 HLG (10 bit)",
+        }
+    }
+    fn tags(
+        self,
+    ) -> (
+        ff::color::Space,
+        ff::color::Primaries,
+        ff::color::TransferCharacteristic,
+    ) {
+        use ff::color::{Primaries, Space, TransferCharacteristic as Transfer};
+        match self {
+            Self::Bt709 => (Space::BT709, Primaries::BT709, Transfer::BT709),
+            Self::Pq => (Space::BT2020NCL, Primaries::BT2020, Transfer::SMPTE2084),
+            Self::Hlg => (Space::BT2020NCL, Primaries::BT2020, Transfer::ARIB_STD_B67),
+        }
+    }
+}
+
+/// Authored HDR10 metadata, not a measurement of the exported content. Mastering primaries
+/// are BT.2020/D65; luminance is in cd/m². HLG does not use HDR10 static metadata.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Hdr10Metadata {
+    pub mastering_max_nits: f64,
+    pub mastering_min_nits: f64,
+    pub max_cll: u32,
+    pub max_fall: u32,
+}
+impl Default for Hdr10Metadata {
+    fn default() -> Self {
+        Self {
+            mastering_max_nits: 1000.0,
+            mastering_min_nits: 0.0001,
+            max_cll: 1000,
+            max_fall: 400,
+        }
+    }
+}
+impl Hdr10Metadata {
+    pub fn validate(self) -> Result {
+        if !self.mastering_max_nits.is_finite()
+            || !self.mastering_min_nits.is_finite()
+            || !(100.0..=10000.0).contains(&self.mastering_max_nits)
+            || self.mastering_min_nits < 0.0
+            || self.mastering_min_nits >= self.mastering_max_nits
+            || self.max_cll > 10000
+            || self.max_fall > self.max_cll
+        {
+            return Err(MediaError::Unsupported(
+                "invalid HDR10 luminance metadata".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct VideoSettings {
+    pub color: DeliveryColor,
+    pub hdr10: Hdr10Metadata,
     pub codec: VideoCodec,
     pub width: u32,
     pub height: u32,
@@ -191,6 +272,36 @@ pub struct VideoSettings {
     /// Constant-quality level (lower is better), used when no bitrate is set.
     pub quality: u8,
     pub hardware: bool,
+}
+
+impl VideoSettings {
+    pub fn input(&self) -> VideoInput {
+        if self.color.is_hdr() && self.codec == VideoCodec::Hevc {
+            VideoInput::Yuv420p10
+        } else {
+            self.codec.input()
+        }
+    }
+    /// Checked before the destination is opened; HDR can never downgrade to 8 bits.
+    pub fn validate_delivery(&self) -> Result {
+        if self.color.is_hdr()
+            && !matches!(
+                self.codec,
+                VideoCodec::Hevc | VideoCodec::ProRes422Hq | VideoCodec::ProRes4444
+            )
+        {
+            return Err(MediaError::Unsupported(
+                "HDR requires HEVC or ProRes (10 bit)".into(),
+            ));
+        }
+        if self.width == 0 || self.height == 0 {
+            return Err(MediaError::Unsupported("empty video dimensions".into()));
+        }
+        if self.color == DeliveryColor::Pq {
+            self.hdr10.validate()?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -230,6 +341,7 @@ pub struct AudioSettings {
 }
 
 struct VideoOut {
+    color: DeliveryColor,
     encoder: ff::encoder::Video,
     stream: usize,
     time_base: ff::Rational,
@@ -281,6 +393,9 @@ impl Muxer {
         audio: Option<&AudioSettings>,
         tuning: Tuning,
     ) -> Result<Muxer> {
+        if let Some(video) = video {
+            video.validate_delivery()?;
+        }
         init();
         let mut octx = ff::format::output(path)?;
         let global_header = octx
@@ -325,6 +440,99 @@ impl Muxer {
         self.audio.as_ref().map(|a| a.frame_size).unwrap_or(1024)
     }
 
+    /// Converts a CPU compositor's straight RGBA8 into the same delivery layout as GPU export.
+    /// BT.709 limited YUV, or full-range RGBA for alpha codecs. Reuses FFmpeg in this process.
+    pub fn push_rgba(&mut self, pixels: &[u8]) -> Result {
+        let Some(v) = &self.video else {
+            return Ok(());
+        };
+        if v.color.is_hdr() {
+            return Err(MediaError::Unsupported(
+                "HDR requires floating-point delivery conversion; RGBA8 cannot carry HDR".into(),
+            ));
+        }
+        let (w, h) = (v.frame.width(), v.frame.height());
+        let expected = (w as usize)
+            .checked_mul(h as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(|| MediaError::Failed("RGBA frame size overflow".into()))?;
+        if pixels.len() != expected {
+            return Err(MediaError::Failed("RGBA frame size mismatch".into()));
+        }
+        if v.input == VideoInput::Rgba8 {
+            return self.push_video(&[pixels]);
+        }
+        let mut input = ff::frame::Video::new(Pixel::RGBA, w, h);
+        for y in 0..h as usize {
+            let stride = input.stride(0);
+            input.data_mut(0)[y * stride..y * stride + w as usize * 4]
+                .copy_from_slice(&pixels[y * w as usize * 4..(y + 1) * w as usize * 4]);
+            if v.input != VideoInput::Yuva444p10 {
+                // Delivery formats without alpha composite onto black, like native export.
+                for pixel in input.data_mut(0)[y * stride..y * stride + w as usize * 4]
+                    .as_chunks_mut::<4>()
+                    .0
+                {
+                    let alpha = u16::from(pixel[3]);
+                    for channel in &mut pixel[..3] {
+                        *channel = ((u16::from(*channel) * alpha + 127) / 255) as u8;
+                    }
+                    pixel[3] = 255;
+                }
+            }
+        }
+        let pixel = v.staging.as_ref().unwrap_or(&v.frame).format();
+        let mut scaler = ff::software::scaling::Context::get(
+            Pixel::RGBA,
+            w,
+            h,
+            pixel,
+            w,
+            h,
+            ff::software::scaling::flag::Flags::BILINEAR,
+        )?;
+        // SAFETY: the context is live; swscale copies the static coefficient table. RGB input
+        // is full range, delivery YUV is BT.709 limited range, with unity brightness/contrast.
+        unsafe {
+            let coefficients = ff::ffi::sws_getCoefficients(ff::ffi::SWS_CS_ITU709);
+            if ff::ffi::sws_setColorspaceDetails(
+                scaler.as_mut_ptr(),
+                coefficients,
+                1,
+                coefficients,
+                0,
+                0,
+                1 << 16,
+                1 << 16,
+            ) < 0
+            {
+                return Err(MediaError::Failed(
+                    "cannot configure CPU delivery color conversion".into(),
+                ));
+            }
+        }
+        let mut output = ff::frame::Video::empty();
+        scaler.run(&input, &mut output)?;
+        let (count, cx, cy, bps) = v.input.planes();
+        let mut planes = Vec::new();
+        for i in 0..count {
+            let (pw, ph) = if i == 0 || i == 3 {
+                (w, h)
+            } else {
+                (w.div_ceil(1 << cx), h.div_ceil(1 << cy))
+            };
+            let row = pw as usize * bps;
+            let stride = output.stride(i);
+            let data = output.data(i);
+            let mut packed = Vec::with_capacity(row * ph as usize);
+            for y in 0..ph as usize {
+                packed.extend_from_slice(&data[y * stride..y * stride + row]);
+            }
+            planes.push(packed);
+        }
+        self.push_video(&planes.iter().map(Vec::as_slice).collect::<Vec<_>>())
+    }
+
     /// Encodes one frame. `planes` are tightly packed rows in the layout of `VideoInput`.
     pub fn push_video(&mut self, planes: &[&[u8]]) -> Result {
         let Some(v) = &mut self.video else {
@@ -332,6 +540,19 @@ impl Muxer {
         };
         let (count, cx, cy, bps) = v.input.planes();
         let (w, h) = (v.frame.width() as usize, v.frame.height() as usize);
+        if planes.len() != count {
+            return Err(MediaError::Failed("video plane count mismatch".into()));
+        }
+        for (i, plane) in planes.iter().enumerate() {
+            let (pw, ph) = if i == 0 || i == 3 || !v.input.is_yuv() {
+                (w, h)
+            } else {
+                (w.div_ceil(1 << cx), h.div_ceil(1 << cy))
+            };
+            if plane.len() != pw * ph * bps {
+                return Err(MediaError::Failed(format!("video plane {i} size mismatch")));
+            }
+        }
         let target = v.staging.as_mut().unwrap_or(&mut v.frame);
         for (i, plane) in planes.iter().enumerate().take(count) {
             let (pw, ph) = if i == 0 || i == 3 || !v.input.is_yuv() {
@@ -435,7 +656,7 @@ fn try_video(
     global_header: bool,
     tuning: Tuning,
 ) -> Result<VideoOut> {
-    let input = s.codec.input();
+    let input = s.input();
     let wanted = input.pixel();
     let supported: Vec<Pixel> = codec
         .video()
@@ -447,6 +668,8 @@ fn try_video(
         wanted
     } else if supported.contains(&Pixel::NV12) && wanted == Pixel::YUV420P {
         Pixel::NV12
+    } else if supported.contains(&Pixel::P010LE) && wanted == Pixel::YUV420P10LE {
+        Pixel::P010LE
     } else {
         return Err(MediaError::Unsupported(format!(
             "{name} does not accept {wanted:?}"
@@ -472,10 +695,11 @@ fn try_video(
     enc.set_frame_rate(Some(rational(s.rate)));
     enc.set_aspect_ratio(ff::Rational::new(1, 1));
     if input.is_yuv() {
-        enc.set_colorspace(ff::color::Space::BT709);
+        let (space, primaries, transfer) = s.color.tags();
+        enc.set_colorspace(space);
         enc.set_color_range(ff::color::Range::MPEG);
-        enc.set_color_primaries(ff::color::Primaries::BT709);
-        enc.set_color_transfer_characteristic(ff::color::TransferCharacteristic::BT709);
+        enc.set_color_primaries(primaries);
+        enc.set_color_transfer_characteristic(transfer);
     }
     let mut opts = ff::Dictionary::new();
     let delivery = matches!(s.codec, VideoCodec::H264 | VideoCodec::Hevc);
@@ -522,6 +746,15 @@ fn try_video(
         if name == "libx264" {
             opts.set("profile", "high");
         }
+        if name == "libx265" && s.color == DeliveryColor::Pq {
+            let h = s.hdr10;
+            opts.set("x265-params", &format!("hdr10=1:master-display=G(8500,39850)B(6550,2300)R(35400,14600)WP(15635,16450)L({},{})\u{003a}max-cll={},{}",
+                (h.mastering_max_nits * 10000.0).round() as u64,
+                (h.mastering_min_nits * 10000.0).round() as u64, h.max_cll, h.max_fall));
+        }
+        if s.codec == VideoCodec::Hevc && s.color.is_hdr() {
+            opts.set("profile", "main10");
+        }
     }
     match s.codec {
         VideoCodec::ProRes422Hq => opts.set("profile", "3"),
@@ -537,9 +770,20 @@ fn try_video(
     stream.set_parameters(&encoder);
     stream.set_time_base(tb);
     let index = stream.index();
-    let frame = ff::frame::Video::new(enc_format, s.width, s.height);
+    let mut frame = ff::frame::Video::new(enc_format, s.width, s.height);
+    set_frame_color(&mut frame, s.color);
+    if s.color == DeliveryColor::Pq {
+        attach_hdr10(&mut frame, s.hdr10)?;
+        // Stream side data lets MOV/MP4 retain mastering information even for ProRes.
+        let mut parameters = stream.parameters();
+        copy_hdr10_to_stream(&frame, &mut parameters)?;
+    }
     let (staging, scaler) = if enc_format != wanted {
-        let staging = ff::frame::Video::new(wanted, s.width, s.height);
+        let mut staging = ff::frame::Video::new(wanted, s.width, s.height);
+        set_frame_color(&mut staging, s.color);
+        if s.color == DeliveryColor::Pq {
+            attach_hdr10(&mut staging, s.hdr10)?;
+        }
         let scaler = ff::software::scaling::Context::get(
             wanted,
             s.width,
@@ -563,7 +807,114 @@ fn try_video(
         scaler,
         next_pts: 0,
         name: name.to_string(),
+        color: s.color,
     })
+}
+
+fn set_frame_color(frame: &mut ff::frame::Video, color: DeliveryColor) {
+    let (space, primaries, transfer) = color.tags();
+    frame.set_color_space(space);
+    frame.set_color_range(ff::color::Range::MPEG);
+    frame.set_color_primaries(primaries);
+    frame.set_color_transfer_characteristic(transfer);
+}
+
+fn attach_hdr10(frame: &mut ff::frame::Video, h: Hdr10Metadata) -> Result {
+    // SAFETY: FFmpeg allocates side data owned by this live frame. No pointer escapes and
+    // the allocations are checked before dereferencing. These are the FFmpeg 8 public APIs.
+    unsafe {
+        let mastering = hdr_ffi::av_mastering_display_metadata_create_side_data(frame.as_mut_ptr());
+        let light = hdr_ffi::av_content_light_metadata_create_side_data(frame.as_mut_ptr());
+        if mastering.is_null() || light.is_null() {
+            return Err(MediaError::Failed("cannot allocate HDR10 metadata".into()));
+        }
+        let xy = |n| ff::ffi::AVRational { num: n, den: 50000 };
+        (*mastering).display_primaries = [
+            [xy(35400), xy(14600)],
+            [xy(8500), xy(39850)],
+            [xy(6550), xy(2300)],
+        ];
+        (*mastering).white_point = [xy(15635), xy(16450)];
+        (*mastering).max_luminance = ff::ffi::AVRational {
+            num: (h.mastering_max_nits * 10000.0).round() as i32,
+            den: 10000,
+        };
+        (*mastering).min_luminance = ff::ffi::AVRational {
+            num: (h.mastering_min_nits * 10000.0).round() as i32,
+            den: 10000,
+        };
+        (*mastering).has_primaries = 1;
+        (*mastering).has_luminance = 1;
+        (*light).max_cll = h.max_cll;
+        (*light).max_fall = h.max_fall;
+    }
+    Ok(())
+}
+
+// ffmpeg-sys does not include mastering_display_metadata.h. These declarations mirror its
+// public FFmpeg 8 fields; the library allocates both structs so their size is never assumed.
+mod hdr_ffi {
+    use ffmpeg_next::ffi::{AVFrame, AVRational};
+    #[repr(C)]
+    pub struct Mastering {
+        pub display_primaries: [[AVRational; 2]; 3],
+        pub white_point: [AVRational; 2],
+        pub min_luminance: AVRational,
+        pub max_luminance: AVRational,
+        pub has_primaries: std::ffi::c_int,
+        pub has_luminance: std::ffi::c_int,
+    }
+    #[repr(C)]
+    pub struct Light {
+        pub max_cll: std::ffi::c_uint,
+        pub max_fall: std::ffi::c_uint,
+    }
+    unsafe extern "C" {
+        pub fn av_mastering_display_metadata_create_side_data(
+            frame: *mut AVFrame,
+        ) -> *mut Mastering;
+        pub fn av_content_light_metadata_create_side_data(frame: *mut AVFrame) -> *mut Light;
+    }
+}
+
+fn copy_hdr10_to_stream(
+    frame: &ff::frame::Video,
+    parameters: &mut ff::codec::Parameters,
+) -> Result {
+    // SAFETY: packet allocations become owned by the stream codec parameters. Side data
+    // remains owned by the frame; only the payload bytes are copied using its recorded size.
+    unsafe {
+        let p = &mut *parameters.as_mut_ptr();
+        for (frame_kind, packet_kind) in [
+            (
+                ff::ffi::AVFrameSideDataType::AV_FRAME_DATA_MASTERING_DISPLAY_METADATA,
+                ff::ffi::AVPacketSideDataType::AV_PKT_DATA_MASTERING_DISPLAY_METADATA,
+            ),
+            (
+                ff::ffi::AVFrameSideDataType::AV_FRAME_DATA_CONTENT_LIGHT_LEVEL,
+                ff::ffi::AVPacketSideDataType::AV_PKT_DATA_CONTENT_LIGHT_LEVEL,
+            ),
+        ] {
+            let source = ff::ffi::av_frame_get_side_data(frame.as_ptr(), frame_kind);
+            if source.is_null() {
+                return Err(MediaError::Failed("missing HDR10 side data".into()));
+            }
+            let dest = ff::ffi::av_packet_side_data_new(
+                &mut p.coded_side_data,
+                &mut p.nb_coded_side_data,
+                packet_kind,
+                (*source).size,
+                0,
+            );
+            if dest.is_null() {
+                return Err(MediaError::Failed(
+                    "cannot allocate HDR10 stream metadata".into(),
+                ));
+            }
+            std::ptr::copy_nonoverlapping((*source).data, (*dest).data, (*source).size);
+        }
+    }
+    Ok(())
 }
 
 fn open_audio(
@@ -746,6 +1097,8 @@ mod tests {
         let path = dir.path().join("t.mp4");
         let (w, h) = (320u32, 240u32);
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: h,

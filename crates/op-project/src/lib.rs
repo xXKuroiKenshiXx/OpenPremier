@@ -4,6 +4,8 @@
 //! * `prproj`: read-only import of Premiere Pro project files. Writing that format is not
 //!   supported until round-trip conformance is validated (PR-SAVE-002).
 //! * `otio`, `fcpxml`, `edl`: timeline interchange.
+//! * `prproj_version`: standalone copy-only version patch on original XML, not model export.
+//! * `sequence_preset`: partial read-only `.sqpreset` settings adapter.
 
 #![forbid(unsafe_code)]
 
@@ -12,6 +14,8 @@ pub mod fcpxml;
 pub mod native;
 pub mod otio;
 pub mod prproj;
+pub mod prproj_version;
+pub mod sequence_preset;
 pub mod xml;
 
 use thiserror::Error;

@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 earshot = "1.2"
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

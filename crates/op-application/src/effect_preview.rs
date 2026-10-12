@@ -443,8 +443,15 @@ pub fn render(r: &mut Renderer, def: &'static EffectDef) -> Option<Preview> {
             scale: 1.0,
             source: &source,
         });
-        frames.push(r.rgba8(&tex));
+        let pixels = r.rgba8(&tex);
         r.recycle(tex);
+        match pixels {
+            Ok(pixels) => frames.push(pixels),
+            Err(e) => {
+                log::error!("effect preview readback failed: {e}");
+                return None;
+            }
+        }
     }
     Some(Preview {
         width: WIDTH,

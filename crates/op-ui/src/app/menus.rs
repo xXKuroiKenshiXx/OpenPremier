@@ -74,6 +74,12 @@ pub(crate) fn file_menu(ui: &mut Ui, s: &mut State) {
     ui.separator();
     item(ui, s, "Import...", "cmd.file.import");
     item(ui, s, "Link Media...", "op.file.linkmedia");
+    item(
+        ui,
+        s,
+        "Downgrade Adobe Premiere Project...",
+        "op.file.premiereversion",
+    );
     ui.menu_button(t("Export"), |ui| {
         let has = s.ed.active.is_some();
         item_if(ui, s, "Media...", "cmd.file.export.movie", has);
@@ -90,6 +96,22 @@ pub(crate) fn file_menu(ui: &mut Ui, s: &mut State) {
 }
 
 pub(crate) fn edit_menu(ui: &mut Ui, s: &mut State) {
+    item(ui, s, "Plugins...", "op.plugins");
+    item_if(
+        ui,
+        s,
+        "Motion Curves...",
+        "op.plugins.curves",
+        s.ed.prefs.plugins.motion_curves,
+    );
+    item_if(
+        ui,
+        s,
+        "Quick Actions...",
+        "op.plugins.actions",
+        s.ed.prefs.plugins.quick_actions,
+    );
+    ui.separator();
     let undo =
         s.ed.history
             .undo_label()
@@ -125,6 +147,13 @@ pub(crate) fn edit_menu(ui: &mut Ui, s: &mut State) {
     ui.separator();
     item(ui, s, "Cut", "cmd.edit.cut");
     item(ui, s, "Copy", "cmd.edit.copy");
+    item_if(
+        ui,
+        s,
+        "Copy Frame to Clipboard",
+        "op.clipboard.copyframe",
+        s.ed.active.is_some(),
+    );
     item(ui, s, "Paste", "cmd.edit.paste");
     item(ui, s, "Paste Insert", "cmd.edit.pasteinsert");
     item(ui, s, "Paste Attributes...", "cmd.edit.pasteattributes");

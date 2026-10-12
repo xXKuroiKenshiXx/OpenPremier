@@ -29,6 +29,14 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.10.0" date="2026-10-12">
+      <description>
+        <p>
+          Timelines with thousands of cuts stay fast and within memory. Experimental native
+          plugins, a second render engine, HDR export and Premiere project tools.
+        </p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-10-04">
       <description>
         <p>

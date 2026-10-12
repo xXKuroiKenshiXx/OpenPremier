@@ -459,6 +459,12 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64"
 version = "0.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
@@ -3139,10 +3145,12 @@ dependencies = [
 
 [[package]]
 name = "op-application"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
+ "base64 0.22.1",
  "crossbeam-channel",
  "dirs",
+ "image",
  "indexmap",
  "log",
  "op-audio",
@@ -3163,7 +3171,7 @@ dependencies = [
 
 [[package]]
 name = "op-audio"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "cpal",
  "log",
@@ -3177,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "op-core"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "indexmap",
  "serde",
@@ -3187,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "op-mcp"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "log",
  "op-application",
@@ -3202,7 +3210,7 @@ dependencies = [
 
 [[package]]
 name = "op-media"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "ffmpeg-next",
  "libc",
@@ -3210,13 +3218,14 @@ dependencies = [
  "memmap2",
  "op-core",
  "parking_lot",
+ "serde",
  "tempfile",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "op-project"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "flate2",
  "indexmap",
@@ -3231,12 +3240,13 @@ dependencies = [
 
 [[package]]
 name = "op-render"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "ab_glyph",
  "bytemuck",
  "epaint_default_fonts",
  "fontdb",
+ "half",
  "log",
  "op-core",
  "op-media",
@@ -3249,14 +3259,16 @@ dependencies = [
 
 [[package]]
 name = "op-silence"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "earshot",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "op-speech"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -3270,14 +3282,14 @@ dependencies = [
 
 [[package]]
 name = "op-timeline"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "op-core",
 ]
 
 [[package]]
 name = "op-ui"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "ab_glyph",
  "arboard",
@@ -3311,13 +3323,14 @@ dependencies = [
 
 [[package]]
 name = "openpremier"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "log",
  "op-application",
  "op-core",
  "op-mcp",
  "op-media",
+ "op-project",
  "op-render",
  "op-timeline",
  "op-ui",
@@ -5731,7 +5744,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.9.0"
+version = "0.10.0"
 dependencies = [
  "serde_json",
  "sha2",

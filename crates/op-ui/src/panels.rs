@@ -130,6 +130,15 @@ pub fn tools(s: &mut State, ui: &mut Ui) {
             .layout(layout),
         |ui| {
             ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+            // Keep controls reachable in old narrow strips without resetting saved layouts.
+            if vertical {
+                let height = ui
+                    .spacing()
+                    .interact_size
+                    .y
+                    .min((r.width() - 6.0).max(18.0));
+                ui.spacing_mut().interact_size.y = height;
+            }
             for tool in Tool::ALL {
                 let key =
                     s.ed.keymap

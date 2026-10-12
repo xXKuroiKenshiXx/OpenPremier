@@ -5,6 +5,10 @@ use super::*;
 /// Readable names of the commands this application implements.
 pub fn command_name(cmd: &str) -> String {
     const NAMES: &[(&str, &str)] = &[
+        ("op.plugins.actions", "Quick Actions..."),
+        ("op.plugins.curves", "Motion Curves..."),
+        ("op.plugins", "Plugins..."),
+        ("op.clipboard.copyframe", "Copy Frame to Clipboard"),
         ("cmd.edit.undo", "Undo"),
         ("cmd.edit.redo", "Redo"),
         ("cmd.edit.cut", "Cut"),

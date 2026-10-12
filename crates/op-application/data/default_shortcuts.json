@@ -1,4 +1,5 @@
 [
+ {"context":"global","command":"op.plugins.actions","keys":"Ctrl+Alt+F12"},
  {
   "context": "global",
   "command": "cmd.caption.add.track",

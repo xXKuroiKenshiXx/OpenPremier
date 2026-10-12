@@ -19,6 +19,26 @@ fn tb(uv: vec2<f32>) -> vec4<f32> {
     return textureSampleLevel(tex1, samp, uv, 0.0);
 }
 
+// A rolling page fold reveals B; the back of A reflects across the moving fold.
+@fragment
+fn fs_tr_page_turn(in: VOut) -> @location(0) vec4<f32> {
+    let t=clamp(u.progress,0.0,1.0);
+    if(t<=0.0){return ta(in.uv);} if(t>=1.0){return tb(in.uv);}
+    let dir=i32(prm(0));let vertical=dir>=2;let reverse=dir==1 || dir==3;
+    var x=select(in.uv.x,in.uv.y,vertical);if(reverse){x=1.0-x;}
+    let width=max(0.001,prm(1)*0.35*sin(t*PI));
+    let fold=mix(-width,1.0+width,t);
+    let d=x-fold;
+    if(d>width){return ta(in.uv);}
+    if(d<0.0){let shade=1.0-prm(2)*exp(-abs(d)/max(width,0.001));let c=tb(in.uv);return vec4<f32>(c.rgb*shade,c.a);}
+    let rolled=fold+width*sin(d/width*PI*0.5);
+    let q=select(rolled,1.0-rolled,reverse);
+    let uv=select(vec2<f32>(q,in.uv.y),vec2<f32>(in.uv.x,q),vertical);
+    let front=ta(uv);let behind=tb(in.uv);
+    let paper=mix(front.rgb,vec3<f32>(front.a),0.75)*(0.65+0.35*cos(d/width*PI*0.5));
+    return vec4<f32>(paper,front.a)+behind*(1.0-front.a);
+}
+
 // Directions in catalog order: west, east, north, south, north-west, north-east, south-west,
 // south-east. The vector points where the incoming image travels.
 fn direction(i: i32) -> vec2<f32> {

@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 op-core.workspace = true
+op-project.workspace = true
 op-timeline.workspace = true
 op-media.workspace = true
 op-render.workspace = true

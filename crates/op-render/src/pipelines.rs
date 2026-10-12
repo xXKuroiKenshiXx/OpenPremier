@@ -6,6 +6,8 @@ const COMMON: &str = include_str!("shaders/common.wgsl");
 
 /// Shader files and the bind group layout their fragment entry points use.
 const MODULES: &[(&str, &str, Layout)] = &[
+    ("hdr", include_str!("shaders/hdr.wgsl"), Layout::Main),
+    ("manga", include_str!("shaders/manga.wgsl"), Layout::Main),
     (
         "composite",
         include_str!("shaders/composite.wgsl"),
@@ -69,7 +71,7 @@ pub const DISPLAY: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// Output format of an entry point.
 pub fn target_format(entry: &str) -> wgpu::TextureFormat {
     match entry {
-        "fs_present" | "fs_straight" | "fs_rgba8" => DISPLAY,
+        "fs_present" | "fs_straight" | "fs_rgba8" | "fs_hdr_preview" | "fs_hdr_present" => DISPLAY,
         "fs_luma8" => wgpu::TextureFormat::R8Unorm,
         "fs_chroma8" => wgpu::TextureFormat::Rg8Unorm,
         "fs_luma16" | "fs_alpha16" => wgpu::TextureFormat::R16Uint,

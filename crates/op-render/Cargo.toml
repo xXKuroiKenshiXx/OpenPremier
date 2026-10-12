@@ -25,3 +25,4 @@ workspace = true
 
 [dev-dependencies]
 op-timeline.workspace = true
+half = "2"

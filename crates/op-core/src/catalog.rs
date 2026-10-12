@@ -2449,10 +2449,123 @@ static NOISE_GATE: [ParamSpec; 4] = [
     f("release", "Release", 100.0, 1.0, 2000.0, Unit::Ms),
 ];
 
-static PITCH_SHIFTER: [ParamSpec; 3] = [
+static PITCH_SHIFTER: [ParamSpec; 6] = [
     f("semitones", "Semitones", 0.0, -24.0, 24.0, Unit::None),
     f("cents", "Cents", 0.0, -100.0, 100.0, Unit::None),
     pct("mix", "Mix", 100.0),
+    choice(
+        "quality",
+        "Window",
+        1,
+        &["Fast (20 ms)", "Balanced (40 ms)", "Low voices (100 ms)"],
+    ),
+    f("stereo_cents", "Stereo Detune", 0.0, 0.0, 50.0, Unit::None),
+    f("output", "Output Gain", 0.0, -24.0, 12.0, Unit::Db),
+];
+
+const fn static_param(mut p: ParamSpec) -> ParamSpec {
+    p.animatable = false;
+    p
+}
+static TAPE_STOP: [ParamSpec; 4] = [
+    static_param(f(
+        "initial_speed",
+        "Initial Speed",
+        100.0,
+        1.0,
+        100.0,
+        Unit::Percent,
+    )),
+    static_param(f(
+        "final_speed",
+        "Final Speed",
+        0.0,
+        0.0,
+        100.0,
+        Unit::Percent,
+    )),
+    static_param(f("start", "Ramp Start", 0.0, 0.0, 3600.0, Unit::Seconds)),
+    static_param(f(
+        "duration",
+        "Ramp Duration",
+        1.5,
+        0.01,
+        60.0,
+        Unit::Seconds,
+    )),
+];
+
+static MANGA_CAMERA: [ParamSpec; 7] = [
+    choice(
+        "direction",
+        "Direction",
+        0,
+        &[
+            "Left to Right",
+            "Right to Left",
+            "Top to Bottom",
+            "Bottom to Top",
+        ],
+    ),
+    f("travel", "Travel", 25.0, 0.0, 200.0, Unit::Percent),
+    f("zoom", "Zoom", 130.0, 10.0, 500.0, Unit::Percent),
+    f("tilt", "Perspective Tilt", 8.0, -60.0, 60.0, Unit::Degrees),
+    f(
+        "duration",
+        "Move Duration",
+        5.0,
+        0.01,
+        3600.0,
+        Unit::Seconds,
+    ),
+    boolean("smooth", "Smooth", true),
+    boolean("transparent", "Transparent Edges", false),
+];
+static PARALLAX: [ParamSpec; 7] = [
+    point("camera", "Camera Offset", 0.5, 0.5, PointSpace::Layer),
+    f("depth", "Layer Depth", 1.0, 0.0, 10.0, Unit::None),
+    f("strength", "Luma Depth", 15.0, 0.0, 100.0, Unit::Percent),
+    f("zoom", "Zoom", 115.0, 10.0, 500.0, Unit::Percent),
+    angle("tilt_x", "Tilt X", 0.0),
+    angle("tilt_y", "Tilt Y", 0.0),
+    boolean("transparent", "Transparent Edges", true),
+];
+static MANGA_FRAME: [ParamSpec; 6] = [
+    f(
+        "horizontal",
+        "Horizontal Frame",
+        3.0,
+        0.0,
+        49.0,
+        Unit::Percent,
+    ),
+    f("vertical", "Vertical Frame", 3.0, 0.0, 49.0, Unit::Percent),
+    f("feather", "Feather", 0.5, 0.0, 25.0, Unit::Percent),
+    pct("vignette", "Vignette", 30.0),
+    color("color", "Frame Color", 0.0, 0.0, 0.0),
+    pct("opacity", "Opacity", 100.0),
+];
+static DIALOGUE_OCCLUSION: [ParamSpec; 4] = [
+    point("center", "Occlusion Center", 0.5, 0.5, PointSpace::Layer),
+    point("size", "Occlusion Size", 0.3, 0.8, PointSpace::Layer),
+    f("feather", "Feather", 2.0, 0.0, 100.0, Unit::Percent),
+    choice("shape", "Shape", 0, &["Ellipse", "Rectangle"]),
+];
+static TR_PAGE_TURN: [ParamSpec; 4] = [
+    choice(
+        "direction",
+        "Direction",
+        0,
+        &[
+            "Left to Right",
+            "Right to Left",
+            "Top to Bottom",
+            "Bottom to Top",
+        ],
+    ),
+    pct("curl", "Curl", 35.0),
+    pct("shadow", "Shadow", 45.0),
+    boolean("reverse", "Reverse", false),
 ];
 
 static RADIO_VOICE: [ParamSpec; 2] = [
@@ -3024,6 +3137,54 @@ macro_rules! def {
 }
 
 pub static CATALOG: &[EffectDef] = &[
+    def!(
+        "op.video.manga_camera",
+        "Manga Camera 3D",
+        VideoEffect,
+        "Manga and Pages",
+        [],
+        MANGA_CAMERA
+    ),
+    def!(
+        "op.video.parallax",
+        "Parallax",
+        VideoEffect,
+        "Manga and Pages",
+        [],
+        PARALLAX
+    ),
+    def!(
+        "op.video.manga_frame",
+        "Manga Frame and Vignette",
+        VideoEffect,
+        "Manga and Pages",
+        [],
+        MANGA_FRAME
+    ),
+    def!(
+        "op.video.dialogue_occlusion",
+        "Dialogue Occlusion",
+        VideoEffect,
+        "Manga and Pages",
+        [],
+        DIALOGUE_OCCLUSION
+    ),
+    def!(
+        "op.tr.page_turn",
+        "Page Turn",
+        VideoTransition,
+        "Manga and Pages",
+        [],
+        TR_PAGE_TURN
+    ),
+    def!(
+        "op.audio.tape_stop",
+        "Tape Stop / Slowdown",
+        AudioEffect,
+        CAT_AUDIO_SPECIAL,
+        [],
+        TAPE_STOP
+    ),
     // fixed
     def!(
         MOTION,

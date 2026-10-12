@@ -1,6 +1,6 @@
 //! Frame output: presentation for the monitors, delivery planes for export, and scopes.
 
-use op_media::VideoInput;
+use op_media::{DeliveryColor, VideoInput};
 
 use crate::params::P;
 use crate::pipelines::DISPLAY;
@@ -58,10 +58,50 @@ pub(crate) struct ScopeResources {
 }
 
 impl Renderer {
+    /// Uploads a tightly packed working frame without quantizing its premultiplied floats.
+    pub fn upload_working(
+        &mut self,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+    ) -> Result<Tex, String> {
+        if width == 0
+            || height == 0
+            || pixels.len() as u64 != u64::from(width) * u64::from(height) * 8
+        {
+            return Err("invalid RGBA16F working frame".into());
+        }
+        let frame = self.work(width, height);
+        self.gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &frame.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 8),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        Ok(frame)
+    }
+
     /// Converts a finished frame into a display texture (Rgba8Unorm) for a monitor.
     pub fn present_into(&mut self, frame: &Tex, target: &Tex, show_alpha: bool) {
         self.pass(
-            "fs_present",
+            if self.hdr_working {
+                "fs_hdr_present"
+            } else {
+                "fs_present"
+            },
             &[&frame.view],
             P::new().b(show_alpha),
             frame.size(),
@@ -84,15 +124,15 @@ impl Renderer {
     }
 
     /// Reads a texture back as tightly packed rows (blocking).
-    pub fn read_texture(&mut self, t: &Tex, bytes_per_pixel: u32) -> Vec<u8> {
-        self.read_textures(&[(t, bytes_per_pixel)])
+    pub fn read_texture(&mut self, t: &Tex, bytes_per_pixel: u32) -> Result<Vec<u8>, String> {
+        self.read_textures(&[(t, bytes_per_pixel)])?
             .pop()
-            .unwrap_or_default()
+            .ok_or_else(|| "GPU readback returned no texture".into())
     }
 
     /// Reads several textures back with one submission and one wait (blocking). Buffers are
     /// reused between calls.
-    pub fn read_textures(&mut self, list: &[(&Tex, u32)]) -> Vec<Vec<u8>> {
+    pub fn read_textures(&mut self, list: &[(&Tex, u32)]) -> Result<Vec<Vec<u8>>, String> {
         let pending = self.begin_read(list);
         self.end_read(pending)
     }
@@ -152,7 +192,7 @@ impl Renderer {
         for (i, (buffer, ..)) in jobs.iter().enumerate() {
             let tx = tx.clone();
             buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
-                let _ = tx.send((i, r.is_ok()));
+                let _ = tx.send((i, r.map_err(|e| e.to_string())));
             });
         }
         PendingRead {
@@ -163,64 +203,122 @@ impl Renderer {
         }
     }
 
-    /// Waits for reads started with `begin_read` (only for their own submission, not for work
-    /// queued after them) and returns the pixels, tightly packed.
-    pub fn end_read(&mut self, pending: PendingRead) -> Vec<Vec<u8>> {
-        let PendingRead {
-            jobs,
-            index,
-            mapped,
-            post,
-        } = pending;
-        let _ = self.device().poll(wgpu::PollType::Wait {
+    /// Waits up to 30 seconds for reads started with `begin_read` (only their own submission)
+    /// and returns tightly packed pixels. Wait, mapping and range failures fail the whole batch.
+    pub fn end_read(&mut self, mut pending: PendingRead) -> Result<Vec<Vec<u8>>, String> {
+        let jobs = std::mem::take(&mut pending.jobs);
+        let index = pending.index.clone();
+        let post = std::mem::replace(&mut pending.post, Post::None);
+        if let Err(e) = self.device().poll(wgpu::PollType::Wait {
             submission_index: Some(index),
-            timeout: None,
-        });
-        let mut ok = vec![false; jobs.len()];
-        for (i, r) in mapped.try_iter() {
-            ok[i] = r;
+            timeout: Some(std::time::Duration::from_secs(30)),
+        }) {
+            // Discard every outstanding buffer; failed buffers must never enter the pool.
+            for (buffer, ..) in &jobs {
+                buffer.destroy();
+            }
+            return Err(format!("GPU readback wait failed: {e}"));
+        }
+        let mut status = vec![None; jobs.len()];
+        for (i, r) in pending.mapped.try_iter() {
+            status[i] = Some(r);
         }
         let mut out = Vec::with_capacity(jobs.len());
+        let mut failure = None;
         for (i, (buffer, size, unpadded, padded, height)) in jobs.into_iter().enumerate() {
-            let mut data = vec![0u8; (unpadded * height) as usize];
-            if ok[i] {
+            let data = (|| {
+                status[i]
+                    .take()
+                    .ok_or_else(|| format!("GPU readback mapping {i} did not complete"))?
+                    .map_err(|e| format!("GPU readback mapping {i} failed: {e}"))?;
                 let slice = buffer.slice(..);
-                if let Ok(mapped) = slice.get_mapped_range() {
-                    if unpadded == padded {
-                        let n = data.len();
-                        data.copy_from_slice(&mapped[..n]);
-                    } else {
-                        for y in 0..height as usize {
-                            data[y * unpadded as usize..(y + 1) * unpadded as usize]
-                                .copy_from_slice(
-                                    &mapped[y * padded as usize
-                                        ..y * padded as usize + unpadded as usize],
-                                );
-                        }
+                let mapped = slice
+                    .get_mapped_range()
+                    .map_err(|e| format!("GPU readback range {i} failed: {e}"))?;
+                let mut data = vec![0u8; (unpadded * height) as usize];
+                if unpadded == padded {
+                    let n = data.len();
+                    data.copy_from_slice(&mapped[..n]);
+                } else {
+                    for y in 0..height as usize {
+                        data[y * unpadded as usize..(y + 1) * unpadded as usize].copy_from_slice(
+                            &mapped[y * padded as usize..y * padded as usize + unpadded as usize],
+                        );
                     }
                 }
-                buffer.unmap();
+                Ok::<_, String>(data)
+            })();
+            match data {
+                Ok(data) => {
+                    buffer.unmap();
+                    let pool = self.readbacks.entry(size).or_default();
+                    if pool.len() < 4 {
+                        pool.push(buffer);
+                    }
+                    out.push(data);
+                }
+                Err(e) => {
+                    // A failed mapping is already unmapped; unmap again would be invalid.
+                    buffer.destroy();
+                    failure.get_or_insert(e);
+                }
             }
-            let pool = self.readbacks.entry(size).or_default();
-            if pool.len() < 4 {
-                pool.push(buffer);
-            }
-            out.push(data);
         }
-        match post {
+        if let Some(e) = failure {
+            return Err(e);
+        }
+        Ok(match post {
             Post::None => out,
             Post::Planes { bytes, alpha } => split_planes(out, bytes, alpha),
-        }
+        })
     }
 
     /// Converts a finished frame to the planes an encoder expects (tightly packed rows).
-    pub fn delivery_planes(&mut self, frame: &Tex, input: VideoInput) -> Vec<Vec<u8>> {
+    pub fn delivery_planes(
+        &mut self,
+        frame: &Tex,
+        input: VideoInput,
+    ) -> Result<Vec<Vec<u8>>, String> {
         let pending = self.begin_delivery(frame, input);
         self.end_read(pending)
     }
 
     /// Like `delivery_planes`, without waiting: `end_read` returns the planes.
     pub fn begin_delivery(&mut self, frame: &Tex, input: VideoInput) -> PendingRead {
+        self.begin_delivery_matrix(frame, input, false)
+    }
+
+    /// HDR conversion happens in floating point before quantizing to 10-bit BT.2020 YUV.
+    pub fn begin_delivery_color(
+        &mut self,
+        frame: &Tex,
+        input: VideoInput,
+        color: DeliveryColor,
+    ) -> PendingRead {
+        if !color.is_hdr() {
+            return self.begin_delivery(frame, input);
+        }
+        let encoded = self.work(frame.width, frame.height);
+        self.pass(
+            "fs_delivery_hdr",
+            &[&frame.view],
+            P::new()
+                .f(if color == DeliveryColor::Pq { 1.0 } else { 2.0 })
+                .b(input == VideoInput::Yuva444p10),
+            frame.size(),
+            &encoded,
+        );
+        let pending = self.begin_delivery_matrix(&encoded, input, true);
+        self.put(encoded);
+        pending
+    }
+
+    fn begin_delivery_matrix(
+        &mut self,
+        frame: &Tex,
+        input: VideoInput,
+        bt2020: bool,
+    ) -> PendingRead {
         let (w, h) = (frame.width, frame.height);
         let (planes, cx, cy, bytes) = input.planes();
         let bits = input.bits() as f32;
@@ -251,7 +349,7 @@ impl Renderer {
         self.pass(
             luma_entry,
             &[&frame.view],
-            P::new().b(straight).f(bits),
+            P::new().b(straight).f(bits).b(bt2020),
             frame.size(),
             &y,
         );
@@ -266,7 +364,7 @@ impl Renderer {
         self.pass(
             chroma_entry,
             &[&frame.view],
-            P::new().b(straight).f(bits),
+            P::new().b(straight).f(bits).b(bt2020),
             frame.size(),
             &c,
         );
@@ -300,9 +398,19 @@ impl Renderer {
     }
 
     /// Straight RGBA8 of a frame (thumbnails, still export, tests).
-    pub fn rgba8(&mut self, frame: &Tex) -> Vec<u8> {
+    pub fn rgba8(&mut self, frame: &Tex) -> Result<Vec<u8>, String> {
         let t = self.target(frame.width, frame.height, DISPLAY);
-        self.pass("fs_straight", &[&frame.view], P::new(), frame.size(), &t);
+        self.pass(
+            if self.hdr_working {
+                "fs_hdr_preview"
+            } else {
+                "fs_straight"
+            },
+            &[&frame.view],
+            P::new(),
+            frame.size(),
+            &t,
+        );
         let data = self.read_texture(&t, 4);
         self.put(t);
         data
@@ -437,8 +545,17 @@ impl Renderer {
 pub struct PendingRead {
     jobs: Vec<(wgpu::Buffer, u64, u32, u32, u32)>,
     index: wgpu::SubmissionIndex,
-    mapped: std::sync::mpsc::Receiver<(usize, bool)>,
+    mapped: std::sync::mpsc::Receiver<(usize, Result<(), String>)>,
     post: Post,
+}
+
+impl Drop for PendingRead {
+    fn drop(&mut self) {
+        // Export may stop while the next frame is still in flight.
+        for (buffer, ..) in &self.jobs {
+            buffer.destroy();
+        }
+    }
 }
 
 /// What happens to the pixels once read.
@@ -467,4 +584,77 @@ fn split_planes(mut data: Vec<Vec<u8>>, s: usize, alpha: bool) -> Vec<Vec<u8>> {
         out.push(a);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn renderer() -> Option<Renderer> {
+        match crate::Gpu::headless() {
+            Ok(gpu) => Some(Renderer::new(gpu)),
+            Err(e) if std::env::var("OPENPREMIER_REQUIRE_GPU").is_ok_and(|v| v == "1") => {
+                panic!("no GPU adapter: {e}")
+            }
+            Err(e) => {
+                eprintln!("skipping GPU readback tests: {e}");
+                None
+            }
+        }
+    }
+
+    #[test]
+    fn cancelled_mapping_fails_the_batch_and_cleans_up_other_planes() {
+        let Some(mut r) = renderer() else { return };
+        let texture = r.display_target(3, 2);
+        let pending = r.begin_read(&[(&texture, 4), (&texture, 4)]);
+        let buffers: Vec<_> = pending.jobs.iter().map(|j| j.0.clone()).collect();
+        // Cancel a real asynchronous mapping before its completion callback is collected.
+        buffers[0].unmap();
+        let error = r
+            .end_read(pending)
+            .expect_err("a cancelled mapping must fail");
+        assert!(error.contains("mapping 0 failed"), "{error}");
+        for buffer in &buffers {
+            assert!(buffer.get_mapped_range(..).is_err(), "mapping left open");
+        }
+        assert_eq!(r.readbacks.values().map(Vec::len).sum::<usize>(), 1);
+        // Successful buffers remain reusable, including rows needing 256-byte alignment.
+        assert_eq!(r.read_texture(&texture, 4).expect("next read").len(), 24);
+    }
+
+    #[test]
+    fn abandoning_a_pending_read_cancels_all_mappings() {
+        let Some(mut r) = renderer() else { return };
+        let texture = r.display_target(3, 2);
+        let pending = r.begin_read(&[(&texture, 4), (&texture, 4)]);
+        let buffers: Vec<_> = pending.jobs.iter().map(|j| j.0.clone()).collect();
+        drop(pending);
+        for buffer in &buffers {
+            assert!(buffer.get_mapped_range(..).is_err(), "mapping left open");
+        }
+        assert!(r.readbacks.is_empty(), "cancelled buffers entered the pool");
+        assert_eq!(r.read_texture(&texture, 4).expect("next read").len(), 24);
+    }
+
+    #[test]
+    fn an_unavailable_mapped_range_returns_an_error_instead_of_black_pixels() {
+        let Some(mut r) = renderer() else { return };
+        let texture = r.display_target(3, 2);
+        let pending = r.begin_read(&[(&texture, 4)]);
+        r.device()
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(pending.index.clone()),
+                timeout: Some(std::time::Duration::from_secs(30)),
+            })
+            .expect("readback completes");
+        // The callback reported success, but the CPU range is no longer available.
+        pending.jobs[0].0.unmap();
+        let error = r
+            .end_read(pending)
+            .expect_err("an unavailable range must fail");
+        assert!(error.contains("range 0 failed"), "{error}");
+        assert!(r.readbacks.is_empty(), "failed buffer entered the pool");
+        assert_eq!(r.read_texture(&texture, 4).expect("next read").len(), 24);
+    }
 }

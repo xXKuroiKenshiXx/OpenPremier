@@ -1,6 +1,6 @@
 # Editing with AI assistants
 
-**Updated:** 2026-10-04 (version 0.9.0)
+**Updated:** 2026-10-06 (working tree 0.10.0; 33 tools)
 
 OpenPremier speaks the [Model Context Protocol](https://modelcontextprotocol.io) (MCP), so an AI
 assistant such as Claude Code, Codex, Cursor or any other MCP client can edit video with it:
@@ -56,9 +56,10 @@ Edit > Preferences > AI Assistants has buttons that copy these commands with the
 | `add_text` | A title |
 | `detect_silence`, `remove_silence` | Find and cut silences, fillers, repeated words and takes (see [silence.md](silence.md)) |
 | `transcribe_captions`, `set_caption_style` | Animated captions from the speech, and their look |
+| `split_caption`, `merge_captions`, `set_caption_bounds` | Safe caption edits with explicit IDs and sequence times; preserve spoken-word timing (see [caption-editing.md](caption-editing.md)) |
 | `add_marker`, `set_playhead` | Markers and the playhead |
 | `render_frame` | The picture at a time, so the assistant can see the result |
-| `export` | A video file (H.264, HEVC, ProRes, DNxHR or PNG) |
+| `export` | A video file (H.264, HEVC, ProRes, DNxHR or PNG); optional `renderer`: `wgpu`, `wgpu_software`, `fframes_cpu` or `fframes_gpu` |
 | `run_command` | Any menu or keyboard command by its id |
 | `undo`, `redo` | History |
 
@@ -67,3 +68,7 @@ parameter values are numbers, true/false, text, `[x, y]` points from 0 to 1 or c
 `[r, g, b]` from 0 to 1 or `"#rrggbb"`.
 
 The protocol code is in `crates/op-mcp`; `tools.rs` lists the tools and runs them on an editor.
+
+The export renderer is independent of the codec/encoder. fframes CPU/GPU are experimental and
+rejects unsupported scenes before opening the destination; preview/render_frame remains native.
+See [render-engines.md](render-engines.md) for supported scenes and installation.

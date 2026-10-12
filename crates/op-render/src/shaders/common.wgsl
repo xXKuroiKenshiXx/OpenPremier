@@ -55,6 +55,13 @@ fn flag(bit: u32) -> bool {
 
 const PI: f32 = 3.14159265358979;
 
+fn signed_linear(c: vec3<f32>) -> vec3<f32> {
+    return sign(c) * pow(abs(c), vec3<f32>(2.4));
+}
+fn signed_encoding(c: vec3<f32>) -> vec3<f32> {
+    return sign(c) * pow(abs(c), vec3<f32>(1.0 / 2.4));
+}
+
 fn luma(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
 }

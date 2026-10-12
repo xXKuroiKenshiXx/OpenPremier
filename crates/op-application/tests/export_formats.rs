@@ -29,6 +29,8 @@ fn source(dir: &std::path::Path) -> std::path::PathBuf {
     let path = dir.join("camera.mp4");
     let (w, h) = (956u32, 720u32);
     let v = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: VideoCodec::H264,
         width: w,
         height: h,
@@ -126,10 +128,13 @@ fn every_format_with_effects_and_sound() {
             }),
         };
         let settings = ExportSettings {
+            engine: Default::default(),
             path: path.clone(),
             sequence: sid,
             range: SeqRange::new(SeqTime::ZERO, SeqTime::from_seconds(0.6)),
             video: Some(VideoSettings {
+                color: Default::default(),
+                hdr10: Default::default(),
                 codec,
                 width: 956,
                 height: 720,

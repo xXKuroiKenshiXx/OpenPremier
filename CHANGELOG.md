@@ -2,6 +2,93 @@
 
 OpenPremier follows semantic versioning. User-visible changes are grouped by release.
 
+## 0.10.0 - 2026-10-12
+
+- Timelines with thousands of cuts no longer run out of memory or slow down. Clips cut from one
+  share their effect parameters until one of them changes (copy on write), undo keeps at most
+  about a million clip copies (older steps are dropped beyond that, never fewer than 30), and
+  selections of thousands of clips are expanded with their links and groups in one pass. With
+  3,000 cuts the program held 10.9 GB and each cut took 25 ms; it now holds about 0.3 GB with
+  16,000 clips and a cut takes 1 to 4 ms (`tests/stress_edits.rs`).
+- The timeline draws only the clips in view, and clips a few pixels wide only as their color;
+  thumbnails are asked for only where they fit. Thumbnail memory is bounded (400 pictures) and
+  the interface keeps its most recently drawn thumbnails instead of dropping all of them past
+  600, which re-uploaded hundreds of textures every frame on long cut timelines. A thumbnail
+  request dropped from a full queue is asked for again instead of never showing.
+- The Comfortable density (the default) is dense again, close to the earlier layout: 22 px
+  controls, 13 px text and tighter spacing; Spacious is a little roomier.
+
+- Preserve tiny HDR shadows and alpha in fframes CPU by using Skia RGBAF32 raster composition
+  and explicit half-float wire conversions. Cover every positive half subnormal, small-alpha
+  source-over and packaged HDR exports; keep GPU surfaces and IPC in RGBA16F.
+- Real HDR delivery: Rec.2100 PQ/HLG with BT.2020 10-bit HEVC/ProRes, source color/luminance
+  conversion, authored HDR10 mastering/CLL/FALL metadata, SDR export thumbnails and fframes
+  floating composition. Preserve default SDR exports; reject unsupported HDR codecs before
+  opening the destination. Add encoded/decoded metadata and independent color-reference tests.
+- Validate HDR on Windows Vulkan/DX12/WARP and Linux WSL; add isolated-worker CI/package
+  integration for Linux/macOS. Interactive QA, Mac/other physical GPUs and HDR grading remain pending.
+- Pin FFmpeg acquisition to the verified 2026-09-28 release/digests, verify DLL identity before
+  packaging, retain exact native source candidates and Skia DEPS notices. Require retained
+  review evidence and no blockers before publication; legal review remains pending.
+
+- Roomier interface with persistent Compact/Comfortable/Spacious density, enlarged controls,
+  dock headers, project/effect rows and monitor transport. Existing layouts/panels are preserved.
+- Optional automatic proxies on video import with 540p/720p/1080p selection; stale project/source
+  results are discarded and duplicate queued jobs are suppressed. Exports use original media.
+- Retain dependency copyright/license/NOTICE texts and pinned upstream supplements, generate
+  exact application-source snapshots and native-binary inventories. Record unresolved source/
+  provenance issues and check distribution review before publishing.
+
+### Added
+
+- Export renderer selection: native wgpu GPU/software or an isolated fframes 1.2.0 CPU compositor for supported SDR scenes. Persists the preference, reports the effective renderer, preserves rational frame rates and native audio/codecs, and adds optional MCP `export.renderer`. Windows bundles the worker and license notices; see docs/render-engines.md for experimental limits.
+
+- Captions panel: Split at Playhead and Merge Selected, implemented in Rust with one undo step. Splits preserve word timing and graphics animation; merging requires adjacent captions on the same track with identical static styles. Unsupported edits fail without changing the project.
+- Caption start/end editing through Times... and three MCP tools for split, merge and bounds; word timings and undo are preserved within the documented contract.
+- Native six-channel audio bus, nested-sequence masters, explicit mono/stereo/5.1 conversion for playback, scrub and export, and meters before device conversion.
+
+### Fixed
+
+- Unsupported alternative-renderer scenes are rejected before opening or deleting an existing destination. CPU export handles straight alpha and composites non-alpha codecs onto black; ProRes 4444 decode preserves 12-bit YUV/alpha planes and source color metadata.
+
+- Invalid clip speeds and missing required media, nested-sequence or generator references now produce project errors instead of panics or silently empty frames.
+- Autosave retention no longer includes another project's files when its name shares a prefix.
+- XML text limits now include CDATA and decoded character references, with checked byte accounting.
+- GPU readback failures now propagate to video/frame export, MCP and clipboard instead of returning black pixels as success. Failed or abandoned buffers are discarded.
+- Recovery acknowledges successful writes, retries failed revisions and prevents queued writers recreating discarded files. Emergency recovery avoids waiting on held locks.
+- Native saves use unique temporaries and serialize commit/backup within the process.
+- Corrupt bin trees, inconsistent IDs, nested-sequence cycles and exhausted IDs are rejected before unsafe traversals/counter refresh.
+- Undo/redo to the saved state clears dirty without rolling back the monotonic revision; saving seals merged drag edits.
+- Explicit corpus/image test runs fail when their fixture directories contain no supported files.
+
+### Documentation
+
+- Added a source audit and reconstruction plan, caption editing contract and explicit validation limits. Corrected the current panel count to seventeen.
+- Added a feature parity matrix, audio routing contract and fframes assessment with an isolated FFmpeg dependency-resolution probe.
+
+### Added (plugins and animation)
+
+- Bundled native plugin manager in Preferences and Edit: Motion Curves, Folder Portals and Quick Actions, with independent persisted enable switches. Plugin Browser is offline without a provider.
+- Alternate native keyframe value/speed graphs, Bezier handles, named presets and damped bounce. Folder favorites support project-relative paths. Local action search includes effects, presets, transitions, favorites, hiding, ordered macros and optional non-conflicting shortcuts.
+- Native clipboard paste handles bitmap key events, text-event duplicates and Ctrl released before V. Deferred pastes retain their original sequence/time; project changes cancel pending imports. Copy Frame to Clipboard renders the sequence at full resolution.
+- Native Tape Stop / Slowdown retimes audio and pitch with a deterministic speed ramp. Pitch Shifter adds window sizes, four-point interpolation, pitch smoothing, stereo detune and output gain.
+- GPU Manga Camera 3D, Parallax, Manga Frame and Vignette, Dialogue Occlusion and four-direction Page Turn. See docs/native-plugins.md for controls, compositing recipes and limits.
+
+
+### Changed (Premiere projects)
+
+- Rename the standalone file utility to File > Downgrade Adobe Premiere Project and describe only its copy workflow. Direct `.prproj` opening/importing remains separate and never requires this utility.
+
+### Added (Premiere projects)
+
+- File > Premiere Project Compatibility: inspect and save a new `.prproj` copy with a lower Project serialization version, also `--downgrade-prproj`. Preserves all other XML bytes and refuses overwrites; this does not convert newer Premiere features. See docs/premiere-compatibility.md.
+- OpenJumpCuts preset and JSON settings loader in both silence dialogs, using the native Rust detector. See docs/openjumpcuts.md.
+- Load Premiere Sequence Preset in New Sequence and Sequence Settings: partial `.sqpreset` import of progressive dimensions, exact FPS, pixel aspect, sample rate and track counts.
+
+### Changed
+
+- Premiere import also accepts uncompressed UTF-8 XML; serialization version numbers do not block recognizable graphs. Support remains partial.
+
 ## 0.9.0 - 2026-10-04
 
 ### Added
@@ -234,3 +321,27 @@ OpenPremier follows semantic versioning. User-visible changes are grouped by rel
 - `.prproj` import is read-only and covers a subset of project structures.
 - OpenFX, VST3 and WebAssembly scripting are not included in this release.
 - A macOS package is not available yet.
+
+### Local fframes GPU continuation (2026-10-07, unreleased)
+
+- Select fframes GPU (Skia/Vulkan) independently from CPU/native rendering and video encoding.
+- Verify physical GPU/context/output allocation before opening the destination; no CPU fallback.
+- Add 16 SVG blend modes, text shadows and Cross Dissolve/Dip to Black/Dip to White, with
+  premultiplied transition mixing and content-dependent cache identities.
+- Extend CPU/GPU export acceptance, native pixel comparisons, MCP schema and Windows worker CI.
+- Record exact catalog gaps, pinned Skia binary/license provenance and worker MSVC runtime.
+  Full effect/HDR/preview parity and native redistribution review remain pending.
+
+### Local fframes compatibility continuation (2026-10-07, unreleased)
+
+- Add an explicitly identified hybrid compositor sharing native preparation for all 92 effects,
+  43 transitions and 27 blends, captions, feather, mattes/adjustments and interpreted media.
+  Preserve separate normal tracks; destination-dependent operations use native checkpoints.
+- Transport premultiplied RGBA16F through bounded binary IPC and Skia floating surfaces on
+  CPU/GPU. Deliver high-bit codecs through native conversion, with no intermediate RGBA8.
+- Add Preferences selection for asynchronous Source/Program fframes previews, coalesced
+  requests, stale-project/result guards, persistent workers and nonblocking cancellation.
+- Add six CPU/GPU differential/runtime tests, including the complete catalog, caption styles,
+  PQ/HLG source conversion, floating precision, preview and all six exported codecs.
+- Keep independent engine coverage distinct from hybrid compatibility. Native HDR mastering,
+  zero-copy GPU sharing, hardware/platform/UI QA and redistribution review remain pending.

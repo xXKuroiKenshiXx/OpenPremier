@@ -8,6 +8,7 @@ pub mod dsp;
 pub mod effects;
 pub mod engine;
 pub mod mixer;
+mod tape;
 
 pub use device::Output;
 pub use engine::{Playback, render_range};

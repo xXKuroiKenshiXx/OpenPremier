@@ -64,15 +64,21 @@ impl Default for IdGen {
 impl IdGen {
     pub fn next_raw(&mut self) -> u64 {
         let v = self.next;
-        self.next += 1;
+        // Exhaustion stays at MAX; project validation rejects this sentinel and the draft.
+        // Even an imported counter near the limit must not panic midway through an edit.
+        self.next = self.next.saturating_add(1);
         v
     }
 
     /// Makes sure future IDs are above `seen` (after loading or merging data).
     pub fn observe(&mut self, seen: u64) {
         if seen >= self.next {
-            self.next = seen + 1;
+            self.next = seen.saturating_add(1);
         }
+    }
+
+    pub(crate) fn exhausted(&self) -> bool {
+        self.next == u64::MAX
     }
 
     pub fn item(&mut self) -> ItemId {

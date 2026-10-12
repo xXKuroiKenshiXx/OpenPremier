@@ -142,7 +142,7 @@ impl Workspace {
                 );
                 let [timeline, _project] =
                     t.split_left(bottom, 0.3, vec![Project, Effects, Markers, History, Info]);
-                let [timeline, _tools] = t.split_left(timeline, 0.02, vec![Tools]);
+                let [timeline, _tools] = t.split_left(timeline, 0.05, vec![Tools]);
                 t.split_right(timeline, 0.965, vec![Meters]);
             }
             Workspace::Assembly => {
@@ -152,7 +152,7 @@ impl Workspace {
                     vec![Project, Effects, Markers, History],
                 );
                 let [timeline, _program] = t.split_above(right, 0.5, vec![Program, Source]);
-                let [timeline, _tools] = t.split_left(timeline, 0.02, vec![Tools]);
+                let [timeline, _tools] = t.split_left(timeline, 0.05, vec![Tools]);
                 t.split_right(timeline, 0.955, vec![Meters]);
             }
             Workspace::Color => {
@@ -174,7 +174,7 @@ impl Workspace {
                 t.split_left(top, 0.5, vec![EffectControls, Source]);
                 let [timeline, _project] =
                     t.split_left(bottom, 0.25, vec![Project, History, Markers]);
-                let [timeline, _tools] = t.split_left(timeline, 0.02, vec![Tools]);
+                let [timeline, _tools] = t.split_left(timeline, 0.05, vec![Tools]);
                 t.split_right(timeline, 0.955, vec![Meters]);
             }
             Workspace::Audio => {
@@ -192,7 +192,7 @@ impl Workspace {
                 );
                 let [bottom, top] = t.split_above(left, 0.52, vec![Program]);
                 t.split_left(top, 0.4, vec![Source, Project]);
-                let [timeline, _tools] = t.split_left(bottom, 0.02, vec![Tools]);
+                let [timeline, _tools] = t.split_left(bottom, 0.05, vec![Tools]);
                 t.split_right(timeline, 0.955, vec![Meters]);
             }
         }

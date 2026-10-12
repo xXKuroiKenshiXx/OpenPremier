@@ -10,7 +10,9 @@ use op_application::keymap::{self, Binding, Chord, Keymap};
 use op_application::performance::{Hardware, Profile};
 use op_application::{ExportJob, ExportSettings};
 use op_core::*;
-use op_media::{AudioCodec, AudioSettings, VideoCodec, VideoSettings};
+use op_media::{
+    AudioCodec, AudioSettings, DeliveryColor, Hdr10Metadata, VideoCodec, VideoSettings,
+};
 use op_project::prproj::ImportReport;
 use op_timeline::Attributes;
 
@@ -22,6 +24,7 @@ mod export;
 mod media;
 mod paste;
 mod preferences;
+mod prproj_version;
 mod sequence;
 mod shortcuts;
 mod silence;
@@ -33,6 +36,7 @@ use paste::*;
 pub use preferences::hardware_summary;
 use preferences::*;
 use sequence::*;
+pub(crate) use shortcuts::command_name;
 use shortcuts::*;
 use silence::{SilenceForm, silence_dialog};
 use silence_batch::{BatchForm, silence_batch_dialog};
@@ -45,6 +49,9 @@ pub enum Then {
 }
 
 pub struct ExportForm {
+    color: DeliveryColor,
+    hdr10: Hdr10Metadata,
+    engine: op_application::render_engine::RenderEngine,
     sequence: SequenceId,
     path: PathBuf,
     preset: usize,
@@ -93,6 +100,7 @@ pub struct CaptionForm {
 }
 
 pub enum Dialog {
+    PremiereVersion(Box<prproj_version::VersionForm>),
     Unsaved(Then),
     /// Closing the program while an export runs.
     ExportRunning,
@@ -213,6 +221,9 @@ impl Dialog {
                 .or_else(dirs_video)
                 .unwrap_or_default();
         let mut f = ExportForm {
+            color: Default::default(),
+            hdr10: Default::default(),
+            engine: s.ed.prefs.export_engine,
             sequence: seq.id,
             path: dir.join(format!("{}.mp4", seq.name)),
             preset: 0,
@@ -1053,6 +1064,7 @@ fn dialog(s: &mut State, ctx: &egui::Context, d: &mut Dialog) -> bool {
             }
             chosen.is_none()
         }
+        Dialog::PremiereVersion(form) => prproj_version::version_dialog(s, ctx, form),
         Dialog::LinkMedia(form) => link_media_dialog(s, ctx, form),
         Dialog::Silence(form) => silence_dialog(s, ctx, form),
         Dialog::SilenceBatch(form) => silence_batch_dialog(s, ctx, form),

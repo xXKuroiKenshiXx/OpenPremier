@@ -2,6 +2,7 @@
 //! service, playback, export, autosave and preferences. The UI is a thin layer over `Editor`.
 
 pub mod autosave;
+mod caption_edit;
 pub mod captions;
 pub mod commands;
 pub mod editor;
@@ -12,10 +13,13 @@ pub mod logging;
 pub mod media;
 pub mod merge;
 pub mod performance;
+pub mod plugins;
 pub mod prefs;
 pub mod proxies;
 pub mod recovery;
 pub mod relink;
+pub mod render_engine;
+pub mod render_preview;
 pub mod session;
 pub mod silence;
 

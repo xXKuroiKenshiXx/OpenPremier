@@ -21,6 +21,39 @@ impl Renderer {
         h: u32,
         scale: f32,
     ) -> Tex {
+        if !self.hdr_working
+            || matches!(
+                effect,
+                "op.tr.cross_dissolve"
+                    | "op.tr.dip_to_black"
+                    | "op.tr.dip_to_white"
+                    | "op.tr.blur_dissolve"
+            )
+        {
+            return self.transition_709(effect, progress, fx, a, b, w, h, scale);
+        }
+        let aa = self.working_709(a);
+        let bb = self.working_709(b);
+        let output = self.transition_709(effect, progress, fx, &aa, &bb, w, h, scale);
+        let hdr = self.input_hdr(&output, op_core::Transfer::Bt709, op_core::Primaries::Bt709);
+        self.put(aa);
+        self.put(bb);
+        self.put(output);
+        hdr
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn transition_709(
+        &mut self,
+        effect: &str,
+        progress: f32,
+        fx: &EvalComponent,
+        a: &Tex,
+        b: &Tex,
+        w: u32,
+        h: u32,
+        scale: f32,
+    ) -> Tex {
         let reverse = fx.bool("reverse");
         let (a, b, t) = if reverse {
             (b, a, 1.0 - progress)
@@ -33,6 +66,13 @@ impl Renderer {
         let dir = fx.choice("direction") as f32;
         let border = |p: P| p.f(fx.f32("border")).rgb(fx.color("border_color"));
         let (entry, params): (&'static str, P) = match effect {
+            "op.tr.page_turn" => (
+                "fs_tr_page_turn",
+                P::new()
+                    .f(dir)
+                    .f(fx.f32("curl") / 100.0)
+                    .f(fx.f32("shadow") / 100.0),
+            ),
             "op.tr.cross_dissolve" => ("fs_tr_dissolve", P::new().f(0.0)),
             "op.tr.dip_to_black" => ("fs_tr_dissolve", P::new().f(1.0)),
             "op.tr.dip_to_white" => ("fs_tr_dissolve", P::new().f(2.0)),

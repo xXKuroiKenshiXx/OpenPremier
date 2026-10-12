@@ -348,6 +348,8 @@ mod tests {
 
     fn clip(path: &Path, w: u32, frames: u32) {
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: 64,
@@ -417,6 +419,8 @@ mod tests {
 
     #[test]
     fn siblings_of_a_located_file_are_linked_too() {
+        // Editor lifecycle calls mutate the process-wide recovery snapshot.
+        let _recovery_guard = crate::recovery::TEST_GUARD.lock();
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Clip1.MOV"), b"x").unwrap();
         std::fs::write(dir.path().join("clip2.mov"), b"x").unwrap();

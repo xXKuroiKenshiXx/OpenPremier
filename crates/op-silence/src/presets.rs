@@ -18,6 +18,15 @@ pub fn all() -> Vec<Preset> {
     let text = TextParams::default();
     vec![
         Preset {
+            name: "OpenJumpCuts",
+            about: "OpenJumpCuts defaults: -80 dBFS, 1 s silence, 0.3 s sound, 0.5 s padding. Adjust the threshold for your recording.",
+            params: crate::jumpcut::Settings::default()
+                .params()
+                .expect("valid built-in settings"),
+            text: text.clone(),
+            words: false,
+        },
+        Preset {
             name: "Gentle",
             about: "Only long pauses; a natural rhythm. For interviews and lectures.",
             params: Params {

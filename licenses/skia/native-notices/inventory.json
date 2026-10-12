@@ -1,0 +1,185 @@
+{
+  "skia_tag": "m153-0.101.2",
+  "deps_sha256": "765be0ad1aff9088cdaad44d06ea9253293aec89a9647a5f5f4e13cdd6750e02",
+  "deps_url": "https://raw.githubusercontent.com/rust-skia/skia/61e7ca4e99062cdd0ab69445d5963fb3365778f6/DEPS",
+  "notice_scope": "Pinned DEPS candidates; build reachability and embedded source correspondence require review.",
+  "dependencies": [
+    {
+      "dependency": "brotli",
+      "repository": "https://skia.googlesource.com/external/github.com/google/brotli.git",
+      "revision": "6d03dfbedda1615c4cba1211f8d81735575209c8",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/brotli-LICENSE",
+          "url": "https://skia.googlesource.com/external/github.com/google/brotli/+/6d03dfbedda1615c4cba1211f8d81735575209c8/LICENSE?format=TEXT",
+          "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "d3d12allocator",
+      "repository": "https://skia.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator.git",
+      "revision": "169895d529dfce00390a20e69c2f516066fe7a3b",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/d3d12allocator-LICENSE.txt",
+          "url": "https://skia.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator/+/169895d529dfce00390a20e69c2f516066fe7a3b/LICENSE.txt?format=TEXT",
+          "sha256": "e078ee4f8c5ed0673f4d93b5318557eb8b4e0d7dbccef2ab45c763c7693f0f37"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "expat",
+      "repository": "https://chromium.googlesource.com/external/github.com/libexpat/libexpat.git",
+      "revision": "6154446fccefbf3ca644894f598969113b0c7bcd",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/expat-COPYING",
+          "url": "https://chromium.googlesource.com/external/github.com/libexpat/libexpat/+/6154446fccefbf3ca644894f598969113b0c7bcd/COPYING?format=TEXT",
+          "sha256": "31b15de82aa19a845156169a17a5488bf597e561b2c318d159ed583139b25e87"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "freetype",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/freetype2.git",
+      "revision": "264b5fbf5b912b39f98d038bf75d39be0a73f21b",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/freetype-docs-FTL.TXT",
+          "url": "https://chromium.googlesource.com/chromium/src/third_party/freetype2/+/264b5fbf5b912b39f98d038bf75d39be0a73f21b/docs/FTL.TXT?format=TEXT",
+          "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "harfbuzz",
+      "repository": "https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git",
+      "revision": "9cb1fee51069b206effb4736e443b038d230789d",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/harfbuzz-COPYING",
+          "url": "https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz/+/9cb1fee51069b206effb4736e443b038d230789d/COPYING?format=TEXT",
+          "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "icu",
+      "repository": "https://chromium.googlesource.com/chromium/deps/icu.git",
+      "revision": "d578f2e8b7bd5938e21cfb6bf15c079e0aa5b738",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/icu-LICENSE",
+          "url": "https://chromium.googlesource.com/chromium/deps/icu/+/d578f2e8b7bd5938e21cfb6bf15c079e0aa5b738/LICENSE?format=TEXT",
+          "sha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "libjpeg-turbo",
+      "repository": "https://chromium.googlesource.com/chromium/deps/libjpeg_turbo.git",
+      "revision": "e14cbfaa85529d47f9f55b0f104a579c1061f9ad",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/libjpeg-turbo-LICENSE.md",
+          "url": "https://chromium.googlesource.com/chromium/deps/libjpeg_turbo/+/e14cbfaa85529d47f9f55b0f104a579c1061f9ad/LICENSE.md?format=TEXT",
+          "sha256": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "libpng",
+      "repository": "https://skia.googlesource.com/third_party/libpng.git",
+      "revision": "d5515b5b8be3901aac04e5bd8bd5c89f287bcd33",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/libpng-LICENSE",
+          "url": "https://skia.googlesource.com/third_party/libpng/+/d5515b5b8be3901aac04e5bd8bd5c89f287bcd33/LICENSE?format=TEXT",
+          "sha256": "bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "libwebp",
+      "repository": "https://chromium.googlesource.com/webm/libwebp.git",
+      "revision": "845d5476a866141ba35ac133f856fa62f0b7445f",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/libwebp-COPYING",
+          "url": "https://chromium.googlesource.com/webm/libwebp/+/845d5476a866141ba35ac133f856fa62f0b7445f/COPYING?format=TEXT",
+          "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "vulkanmemoryallocator",
+      "repository": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+      "revision": "eb744ea7a2b17040121b4bbb4d6f9e8a77e3cae7",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/vulkanmemoryallocator-LICENSE.txt",
+          "url": "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/+/eb744ea7a2b17040121b4bbb4d6f9e8a77e3cae7/LICENSE.txt?format=TEXT",
+          "sha256": "52df2c03d6cfc9ffec13c9d3626c530fc9ce0cbe41d5ea3d10cd46edeb1aeb38"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "spirv-cross",
+      "repository": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross",
+      "revision": "b8fcf307f1f347089e3c46eb4451d27f32ebc8d3",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/spirv-cross-LICENSE",
+          "url": "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross/+/b8fcf307f1f347089e3c46eb4451d27f32ebc8d3/LICENSE?format=TEXT",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "wuffs",
+      "repository": "https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c.git",
+      "revision": "e3f919ccfe3ef542cfc983a82146070258fb57f8",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/wuffs-LICENSE",
+          "url": "https://skia.googlesource.com/external/github.com/google/wuffs-mirror-release-c/+/e3f919ccfe3ef542cfc983a82146070258fb57f8/LICENSE?format=TEXT",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+        }
+      ],
+      "status": "retained"
+    },
+    {
+      "dependency": "zlib",
+      "repository": "https://chromium.googlesource.com/chromium/src/third_party/zlib",
+      "revision": "646b7f569718921d7d4b5b8e22572ff6c76f2596",
+      "notice_files": [
+        {
+          "file": "licenses/skia/native-notices/zlib-LICENSE",
+          "url": "https://chromium.googlesource.com/chromium/src/third_party/zlib/+/646b7f569718921d7d4b5b8e22572ff6c76f2596/LICENSE?format=TEXT",
+          "sha256": "e1cfcc55c325b3f78cf55df9664abaa066e2271dffe8213347d9fccdfbac8f2c"
+        }
+      ],
+      "status": "retained"
+    }
+  ],
+  "excluded_candidates": [
+    {
+      "dependency": "v8",
+      "reason": "Commented out in pinned DEPS; not enabled by this worker."
+    }
+  ],
+  "skia_revision": "61e7ca4e99062cdd0ab69445d5963fb3365778f6",
+  "source_archive_matches_retained_deps": true
+}

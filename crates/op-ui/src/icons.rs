@@ -501,6 +501,7 @@ pub fn draw(p: &Painter, r: Rect, icon: Icon, c: Color32) {
 
 /// A square icon button. `on` shows a pressed/active state.
 pub fn button(ui: &mut Ui, icon: Icon, size: f32, on: bool, tooltip: &str) -> Response {
+    let size = size.max(ui.spacing().interact_size.y);
     let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
     let color = if on {
         crate::theme::ACCENT
@@ -512,7 +513,12 @@ pub fn button(ui: &mut Ui, icon: Icon, size: f32, on: bool, tooltip: &str) -> Re
     if resp.hovered() || on {
         ui.painter().rect_filled(rect, 3.0, crate::theme::RAISED);
     }
-    draw(ui.painter(), rect, icon, color);
+    draw(
+        ui.painter(),
+        rect.shrink((size * 0.17).min(5.0)),
+        icon,
+        color,
+    );
     if tooltip.is_empty() {
         resp
     } else {

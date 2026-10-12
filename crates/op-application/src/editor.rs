@@ -110,6 +110,7 @@ pub struct Editor {
 /// Where a file being imported goes on the timeline once it is in the project (pasting).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
+    pub sequence: Option<SequenceId>,
     pub path: PathBuf,
     /// Sequence time; None: the playhead.
     pub at: Option<SeqTime>,
@@ -120,6 +121,7 @@ pub struct Placement {
 impl Placement {
     pub fn at_playhead(path: PathBuf) -> Placement {
         Placement {
+            sequence: None,
             path,
             at: None,
             track: None,
@@ -252,7 +254,19 @@ impl Editor {
             self.active = self.open.first().copied();
         }
         if let Some(seq) = self.active.and_then(|s| self.project.sequence(s)) {
-            let exists = |c: &ClipId| seq.clip(*c).is_some();
+            // a set, so a selection of thousands of clips is checked in one pass
+            let ids: std::collections::HashSet<ClipId> = if self.selection.clips.len() > 8 {
+                seq.clips().map(|(_, c)| c.id).collect()
+            } else {
+                Default::default()
+            };
+            let exists = |c: &ClipId| {
+                if ids.is_empty() {
+                    seq.clip(*c).is_some()
+                } else {
+                    ids.contains(c)
+                }
+            };
             let trs: Vec<TransitionId> = seq
                 .all_tracks()
                 .flat_map(|(_, t)| t.transitions.iter().map(|x| x.id))
@@ -360,6 +374,12 @@ impl Editor {
     }
 
     fn reset_session(&mut self) {
+        // A worker from the old project must never attach to reused asset IDs.
+        self.proxies.cancel();
+        self.proxies = crate::proxies::ProxyQueue::default();
+        self.imports.clear();
+        self.importing = 0;
+        self.place_after_import.clear();
         self.selection.clear();
         self.active = None;
         self.open.clear();
@@ -694,7 +714,7 @@ impl Editor {
                 } else {
                     p.root
                 };
-                // the same file twice becomes one asset with two items, like a duplicate
+                // Repeated imports retain separate editable asset interpretations/items.
                 let (_, item) = p.add_asset(bin, asset);
                 items.push(item);
             }
@@ -702,6 +722,26 @@ impl Editor {
             Ok(items)
         });
         if let Some(items) = new_items {
+            if self.prefs.automatic_proxies {
+                let assets: Vec<AssetId> = items
+                    .iter()
+                    .filter_map(|item| match self.project.item(*item)?.kind {
+                        ItemKind::Media { asset, .. } => Some(asset),
+                        _ => None,
+                    })
+                    .filter(|id| {
+                        self.project.asset(*id).is_some_and(|a| {
+                            a.has_video()
+                                && !a.is_still()
+                                && crate::proxies::unsuitable(a).is_none()
+                                && a.proxy.is_none()
+                        })
+                    })
+                    .collect();
+                if !assets.is_empty() {
+                    self.create_proxies(&assets);
+                }
+            }
             for (item, placement) in items.iter().zip(place) {
                 if let Some(p) = placement {
                     log::info!(
@@ -711,7 +751,11 @@ impl Editor {
                         p.track
                     );
                     // nothing open yet: the first pasted file makes a sequence of its own
-                    if self.active.is_none() {
+                    if let Some(sid) = p.sequence {
+                        if self.project.sequence(sid).is_some() {
+                            self.place_item_in(sid, *item, p.at, p.track);
+                        }
+                    } else if self.active.is_none() {
                         self.sequence_from_item(*item);
                     } else {
                         self.place_item(*item, p.at, p.track);
@@ -1217,7 +1261,11 @@ impl Editor {
             if a.proxy.as_deref().is_some_and(|p| Path::new(p).is_file()) {
                 continue;
             }
-            let dst = crate::proxies::proxy_path(&folder, &a);
+            let dst = crate::proxies::proxy_path_at(
+                &folder,
+                &a,
+                self.prefs.proxy_resolution.short_side(),
+            );
             jobs.push((a, dst));
         }
         if jobs.is_empty() {
@@ -1228,7 +1276,8 @@ impl Editor {
             return;
         }
         log::info!("creating {} proxies in {}", jobs.len(), folder.display());
-        self.proxies.add(jobs);
+        self.proxies
+            .add_at(jobs, self.prefs.proxy_resolution.short_side());
     }
 
     /// Detaches proxies from `assets` and deletes the files OpenPremier made.
@@ -1329,13 +1378,22 @@ impl Editor {
 
     /// Attaches finished proxies to their assets (one undo step per batch).
     fn poll_proxies(&mut self) {
-        let results = self.proxies.take_results();
+        let results = self.proxies.take_identified_results();
         if results.is_empty() {
             return;
         }
         let mut made = Vec::new();
         let mut failed = Vec::new();
-        for (id, r) in results {
+        for (source, r) in results {
+            let id = source.id;
+            if !self.project.asset(id).is_some_and(|current| {
+                current.path == source.path
+                    && current.interpretation == source.interpretation
+                    && current.video == source.video
+            }) {
+                log::info!("discarded stale proxy result for asset {:?}", id);
+                continue;
+            }
             match r {
                 Ok(path) => made.push((id, path.to_string_lossy().into_owned())),
                 Err(e) if e == "cancelled" => {}
@@ -1423,6 +1481,15 @@ impl Editor {
     /// Keeps the crash-recovery copy current: unsaved changes reach disk within seconds, on a
     /// background thread, and the copy disappears once there is nothing unsaved.
     fn keep_recovery(&mut self) {
+        if let Some(completion) = crate::recovery::take_result() {
+            match completion.result {
+                Ok(()) => self.recovery_written = completion.revision,
+                Err(error) => log::warn!(
+                    "recovery revision {} will be retried: {error}",
+                    completion.revision
+                ),
+            }
+        }
         let rev = self.history.revision();
         if !self.history.is_dirty() {
             if self.recovery_written != rev {
@@ -1439,9 +1506,8 @@ impl Editor {
         }
         if self.recovery_written != rev
             && self.recovery_at.elapsed() >= crate::recovery::INTERVAL
-            && let Some(written) = crate::recovery::write_in_background()
+            && crate::recovery::write_in_background().is_some()
         {
-            self.recovery_written = written;
             self.recovery_at = Instant::now();
         }
     }
@@ -1483,4 +1549,165 @@ fn apply_prefs(p: &mut Project, prefs: &Preferences) {
     p.settings.media_scaling = prefs.media_scaling;
     p.settings.default_sequence = prefs.default_sequence.clone();
     p.settings.time_display = prefs.time_display;
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    use super::*;
+
+    #[test]
+    fn recovery_revision_is_confirmed_only_after_success_and_failed_io_retries() {
+        let _guard = crate::recovery::TEST_GUARD.lock();
+        crate::recovery::forget();
+        let dir = tempfile::tempdir().unwrap();
+        let mut ed = Editor::new(Dirs::portable(dir.path()), Preferences::default(), false);
+        ed.new_project("Recovery");
+        ed.edit("Rename", |p| {
+            p.name = "Changed".into();
+            Ok(())
+        })
+        .unwrap();
+        let revision = ed.history.revision();
+        // The target parent is a regular file, producing a real filesystem error.
+        std::fs::write(&ed.dirs.data, "not a directory").unwrap();
+        ed.recovery_at = Instant::now() - crate::recovery::INTERVAL;
+        ed.keep_recovery();
+        assert_ne!(ed.recovery_written, revision);
+        crate::recovery::wait_for_background();
+        ed.keep_recovery();
+        assert_ne!(ed.recovery_written, revision);
+        std::fs::remove_file(&ed.dirs.data).unwrap();
+        ed.recovery_at = Instant::now() - crate::recovery::INTERVAL;
+        ed.keep_recovery();
+        assert_ne!(ed.recovery_written, revision);
+        crate::recovery::wait_for_background();
+        ed.keep_recovery();
+        assert_eq!(ed.recovery_written, revision);
+        let file = crate::recovery::file_for(&ed.dirs.autosave(), "Changed");
+        assert_eq!(
+            op_project::native::load(&file).unwrap().project.name,
+            "Changed"
+        );
+        assert_eq!(ed.history.revision(), revision);
+        crate::recovery::forget();
+        assert!(!file.exists());
+    }
+}
+
+#[cfg(test)]
+mod automatic_proxy_tests {
+    use super::*;
+    use crate::prefs::ProxyResolution;
+
+    fn fixture(path: &Path) {
+        let settings = op_media::VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
+            codec: op_media::VideoCodec::H264,
+            width: 1280,
+            height: 720,
+            rate: Rate::FPS_25,
+            bitrate_kbps: None,
+            quality: 23,
+            hardware: false,
+        };
+        let mut mux = op_media::Muxer::create(path, Some(&settings), None).unwrap();
+        let y = vec![100; 1280 * 720];
+        let uv = vec![128; 640 * 360];
+        for _ in 0..3 {
+            mux.push_video(&[&y, &uv, &uv]).unwrap();
+        }
+        mux.finish().unwrap();
+    }
+
+    fn poll_until(ed: &mut Editor, ready: impl Fn(&Editor) -> bool) {
+        let until = Instant::now() + Duration::from_secs(30);
+        while !ready(ed) && Instant::now() < until {
+            ed.poll_imports();
+            ed.poll_proxies();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(ready(ed), "background import/proxy did not complete");
+    }
+
+    #[test]
+    fn imported_video_auto_proxy_keeps_original_and_chosen_resolution() {
+        // Editor lifecycle calls mutate the process-wide recovery snapshot.
+        let _recovery_guard = crate::recovery::TEST_GUARD.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("camera.mp4");
+        fixture(&src);
+        let prefs = Preferences {
+            automatic_proxies: true,
+            proxy_resolution: ProxyResolution::P720,
+            ..Default::default()
+        };
+        let mut ed = Editor::new(Dirs::portable(dir.path()), prefs, false);
+        ed.import(vec![src.clone(), src.clone()], ed.project.root);
+        poll_until(&mut ed, |ed| {
+            ed.importing == 0
+                && !ed.project.assets.is_empty()
+                && ed.project.assets.values().all(|a| a.proxy.is_some())
+        });
+        assert_eq!(
+            ed.project.assets.len(),
+            2,
+            "repeated imports preserve their independent interpretations"
+        );
+        let asset = ed.project.assets.values().next().unwrap();
+        assert_eq!(Path::new(&asset.path), src);
+        let proxy = op_media::probe(Path::new(asset.proxy.as_ref().unwrap())).unwrap();
+        assert_eq!(
+            (
+                proxy.video.as_ref().unwrap().width,
+                proxy.video.as_ref().unwrap().height
+            ),
+            (1280, 720)
+        );
+        assert_eq!(proxy.video.as_ref().unwrap().frames, 3);
+        let p540 = crate::proxies::proxy_path_at(&ed.dirs.data, asset, 540);
+        let p720 = crate::proxies::proxy_path_at(&ed.dirs.data, asset, 720);
+        assert_ne!(p540, p720);
+        let mut interpreted = (**asset).clone();
+        interpreted.interpretation.frame_rate = Some(Rate::FPS_30);
+        assert_ne!(
+            p720,
+            crate::proxies::proxy_path_at(&ed.dirs.data, &interpreted, 720)
+        );
+    }
+
+    #[test]
+    fn automatic_proxies_are_opt_in_and_old_project_results_are_isolated() {
+        // Editor lifecycle calls mutate the process-wide recovery snapshot.
+        let _recovery_guard = crate::recovery::TEST_GUARD.lock();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("camera.mp4");
+        fixture(&src);
+        let mut ed = Editor::new(Dirs::portable(dir.path()), Preferences::default(), false);
+        ed.import(vec![src.clone()], ed.project.root);
+        poll_until(&mut ed, |ed| {
+            ed.importing == 0 && !ed.project.assets.is_empty()
+        });
+        assert!(!ed.proxies.busy());
+        assert!(ed.project.assets.values().all(|a| a.proxy.is_none()));
+        let id = *ed.project.assets.keys().next().unwrap();
+        ed.create_proxies(&[id]);
+        let old_queue = std::mem::take(&mut ed.proxies);
+        let until = Instant::now() + Duration::from_secs(30);
+        while old_queue.busy() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!old_queue.busy());
+        ed.proxies = old_queue;
+        ed.new_project("Second project");
+        ed.import(vec![src], ed.project.root);
+        poll_until(&mut ed, |ed| {
+            ed.importing == 0 && !ed.project.assets.is_empty()
+        });
+        ed.poll_proxies();
+        assert!(
+            ed.project.assets.values().all(|a| a.proxy.is_none()),
+            "old results cannot attach to a reused ID"
+        );
+    }
 }

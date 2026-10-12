@@ -104,17 +104,40 @@ impl<'a> Ed<'a> {
     }
 
     /// Expands a set of clips with their linked partners when linked selection is on.
+    /// One pass over the sequence, so thousands of selected clips stay linear.
     pub fn with_links(&self, ids: &[ClipId]) -> Vec<ClipId> {
-        let mut out: Vec<ClipId> = Vec::new();
+        let mut seen: HashSet<ClipId> = HashSet::with_capacity(ids.len() * 2);
+        let mut out: Vec<ClipId> = Vec::with_capacity(ids.len() * 2);
+        if !self.opts.linked_selection {
+            for &id in ids {
+                if seen.insert(id) {
+                    out.push(id);
+                }
+            }
+            return out;
+        }
+        let mut link_of: HashMap<ClipId, Option<LinkId>> = HashMap::new();
+        let mut members: HashMap<LinkId, Vec<ClipId>> = HashMap::new();
+        for (_, c) in self.seq.clips() {
+            link_of.insert(c.id, c.link);
+            if let Some(l) = c.link {
+                members.entry(l).or_default().push(c.id);
+            }
+        }
         for &id in ids {
-            let set = if self.opts.linked_selection {
-                self.seq.linked(id)
-            } else {
-                vec![id]
-            };
-            for c in set {
-                if !out.contains(&c) {
-                    out.push(c);
+            match link_of.get(&id) {
+                None => {}
+                Some(None) => {
+                    if seen.insert(id) {
+                        out.push(id);
+                    }
+                }
+                Some(Some(l)) => {
+                    for &c in &members[l] {
+                        if seen.insert(c) {
+                            out.push(c);
+                        }
+                    }
                 }
             }
         }
@@ -168,7 +191,7 @@ impl<'a> Ed<'a> {
             link: None,
             group: None,
             label: Label::None,
-            components: default_components(fixed, &mut self.ids),
+            components: default_components(fixed, &mut self.ids).into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: None,

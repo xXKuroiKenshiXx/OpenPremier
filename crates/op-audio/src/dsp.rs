@@ -709,38 +709,80 @@ pub struct PitchShifter {
     ring: Vec<Vec<f32>>,
     pos: usize,
     phase: f64,
+    detune_phase: f64,
+    smoothed_ratio: Option<f64>,
 }
 
 impl PitchShifter {
     pub fn process(&mut self, buf: &mut [f32], channels: usize, rate: u32, ratio: f64, mix: f32) {
+        self.process_options(buf, channels, rate, ratio, mix, 40.0, 0.0);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_options(
+        &mut self,
+        buf: &mut [f32],
+        channels: usize,
+        rate: u32,
+        ratio: f64,
+        mix: f32,
+        window_ms: f64,
+        stereo_cents: f64,
+    ) {
         // a 40 ms window: long enough for low voices, short enough to avoid echoes
-        let window = ((rate.max(8000) as f64 * 0.04) as usize).max(64);
+        let channels = channels.max(1);
+        let window =
+            ((rate.max(8000) as f64 * window_ms.clamp(20.0, 100.0) / 1000.0) as usize).max(64);
         let len = window * 2 + 4;
         if self.ring.len() != channels || self.ring.first().is_some_and(|r| r.len() != len) {
             self.ring = vec![vec![0.0; len]; channels];
             self.pos = 0;
             self.phase = 0.0;
+            self.detune_phase = 0.0;
+            self.smoothed_ratio = Some(ratio);
         }
-        let step = (1.0 - ratio) / window as f64;
+        let ratio = ratio.clamp(0.25, 4.0);
+        let smoothing = 1.0 - (-1.0 / (rate.max(1) as f64 * 0.02)).exp();
         for frame in buf.chunks_exact_mut(channels) {
+            let smooth = self.smoothed_ratio.get_or_insert(ratio);
+            *smooth += (ratio - *smooth) * smoothing;
+            let step = (1.0 - *smooth) / window as f64;
+            let detune =
+                *smooth * (2f64.powf(stereo_cents.clamp(0.0, 50.0) / 1200.0) - 1.0) / window as f64;
             for (c, s) in frame.iter_mut().enumerate() {
                 let ring = &mut self.ring[c];
                 ring[self.pos] = *s;
                 let mut out = 0.0f32;
                 for k in 0..2 {
-                    let f = (self.phase + k as f64 * 0.5).rem_euclid(1.0);
+                    let stereo = if c % 2 == 0 {
+                        self.detune_phase
+                    } else {
+                        -self.detune_phase
+                    };
+                    let f = (self.phase + stereo + k as f64 * 0.5).rem_euclid(1.0);
                     let d = 1.0 + f * window as f64;
                     let rp = (self.pos as f64 - d).rem_euclid(len as f64);
                     let i0 = rp.floor() as usize % len;
-                    let i1 = (i0 + 1) % len;
                     let fr = (rp - rp.floor()) as f32;
-                    let v = ring[i0] * (1.0 - fr) + ring[i1] * fr;
+                    // Four-point interpolation reduces stair-step noise in fractional reads.
+                    let (a, b, c, d) = (
+                        ring[(i0 + len - 1) % len],
+                        ring[i0],
+                        ring[(i0 + 1) % len],
+                        ring[(i0 + 2) % len],
+                    );
+                    let v = b + 0.5
+                        * fr
+                        * (c - a
+                            + fr * (2.0 * a - 5.0 * b + 4.0 * c - d
+                                + fr * (3.0 * (b - c) + d - a)));
                     let w = (std::f64::consts::PI * f).sin();
                     out += v * (w * w) as f32;
                 }
                 *s = *s * (1.0 - mix) + out * mix;
             }
             self.phase = (self.phase + step).rem_euclid(1.0);
+            self.detune_phase = (self.detune_phase - detune).rem_euclid(1.0);
             self.pos = (self.pos + 1) % len;
         }
     }

@@ -151,6 +151,32 @@ pub(super) const SEQ_PRESETS: &[Preset] = &[
 ];
 
 pub(super) fn sequence_form(ui: &mut Ui, st: &mut SequenceSettings, new: bool) {
+    if ui.button(t("Load Premiere Sequence Preset...")).clicked()
+        && let Some(path) = rfd::FileDialog::new()
+            .add_filter("Premiere Sequence Preset", &["sqpreset"])
+            .pick_file()
+    {
+        let result = std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| op_project::sequence_preset::import(&text).map_err(|e| e.to_string()));
+        match result {
+            Ok(mut imported) => {
+                if !new {
+                    imported.video_tracks = st.video_tracks;
+                    imported.audio_tracks = st.audio_tracks;
+                }
+                *st = imported;
+            }
+            Err(e) => {
+                rfd::MessageDialog::new()
+                    .set_title(t("Load Premiere Sequence Preset..."))
+                    .set_description(e)
+                    .set_level(rfd::MessageLevel::Error)
+                    .show();
+            }
+        }
+    }
+    ui.label(RichText::new(t("Reads size, frame rate, pixel aspect, sample rate and track counts. Master stays stereo; preview codecs, channel routing and interlacing are not imported.")).small().color(theme::TEXT_DIM));
     let current = SEQ_PRESETS
         .iter()
         .position(|p| p.w == st.width && p.h == st.height && p.rate == st.rate);

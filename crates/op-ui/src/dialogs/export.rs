@@ -156,8 +156,10 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
     window(ctx, t("Export Settings"))
         .open(&mut open)
         .collapsible(false)
-        .resizable(false)
-        .default_width(520.0)
+        .resizable(true)
+        .default_width(620.0)
+        .default_height(640.0)
+        .vscroll(true)
         .show(ctx, |ui| {
             egui::Grid::new("export")
                 .num_columns(2)
@@ -222,6 +224,27 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
                 RichText::new(t("Export Video")).color(theme::TEXT_BRIGHT),
             );
             ui.add_enabled_ui(f.video, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(t("Render Engine"));
+                    egui::ComboBox::from_id_salt("export-render-engine")
+                        .selected_text(t(f.engine.label()))
+                        .show_ui(ui, |ui| {
+                            for engine in op_application::render_engine::RenderEngine::ALL {
+                                let available = !engine.is_fframes()
+                                    || op_application::render_engine::fframes_worker_path().is_some();
+                                if ui.add_enabled(available, egui::Button::selectable(f.engine == engine, t(engine.label()))).clicked() {
+                                    f.engine = engine;
+                                }
+                            }
+                        });
+                });
+                ui.label(t("The render engine is separate from the video encoder."));
+                if f.engine.is_fframes() && op_application::render_engine::validate_fframes(&s.ed.project,f.sequence).is_err() {
+                    ui.label(t("This sequence uses shared effects with fframes composition."));
+                }
+                if f.engine == op_application::render_engine::RenderEngine::FframesGpu {
+                    ui.label(t("fframes GPU requires a Vulkan GPU; availability is checked before opening the output."));
+                }
                 egui::Grid::new("exp-video")
                     .num_columns(2)
                     .spacing([12.0, 6.0])
@@ -237,6 +260,22 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
                                 }
                             });
                         ui.end_row();
+                        ui.label(t("Delivery Color"));
+                        egui::ComboBox::from_id_salt("exp-color").selected_text(f.color.label()).show_ui(ui, |ui| {
+                            for color in DeliveryColor::ALL { ui.selectable_value(&mut f.color, color, color.label()); }
+                        });
+                        ui.end_row();
+                        if f.color == DeliveryColor::Pq {
+                            ui.label(t("Mastering Peak"));
+                            ui.add(egui::DragValue::new(&mut f.hdr10.mastering_max_nits).range(100.0..=10000.0).suffix(" cd/m²")); ui.end_row();
+                            ui.label(t("Mastering Black"));
+                            ui.add(egui::DragValue::new(&mut f.hdr10.mastering_min_nits).speed(0.0001).max_decimals(4).range(0.0..=100.0).suffix(" cd/m²")); ui.end_row();
+                            ui.label("MaxCLL / MaxFALL");
+                            ui.horizontal(|ui| {
+                                ui.add(egui::DragValue::new(&mut f.hdr10.max_cll).range(0..=10000));
+                                ui.add(egui::DragValue::new(&mut f.hdr10.max_fall).range(0..=10000));
+                            }).response.on_hover_text(t("Authored metadata, not measured from the content. Mastering primaries: BT.2020 / D65.")); ui.end_row();
+                        }
                         ui.label(t("Frame Size"));
                         ui.horizontal(|ui| {
                             ui.add(egui::DragValue::new(&mut f.width).range(16..=16384));
@@ -368,7 +407,21 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
                         .color(theme::TEXT_DIM),
                 );
             }
-            let valid = (f.video || f.audio)
+            let engine_error = if f.video && f.engine.is_fframes() {
+                if op_application::render_engine::fframes_worker_path().is_none() {
+                    Some(t("fframes worker is not installed").to_string())
+                } else if u64::from(f.width)*u64::from(f.height) > 33_177_600 {
+                    Some(t("fframes supports frames up to 33,177,600 pixels").to_string())
+                } else { op_application::render_engine::validate_fframes_hybrid(&s.ed.project,f.sequence).err() }
+            } else { None };
+            let color_error = if f.video && f.color.is_hdr() {
+                if !matches!(f.codec, VideoCodec::Hevc | VideoCodec::ProRes422Hq | VideoCodec::ProRes4444) {
+                    Some(t("HDR requires HEVC or ProRes (10 bit)").to_string())
+                } else if f.color == DeliveryColor::Pq { f.hdr10.validate().err().map(|e| e.to_string()) } else { None }
+            } else { None };
+            if let Some(error) = &color_error { ui.colored_label(theme::WARN, error); }
+            if let Some(error) = &engine_error { ui.colored_label(theme::WARN, error); }
+            let valid = color_error.is_none() && engine_error.is_none() && (f.video || f.audio)
                 && range.is_some_and(|r| !r.is_empty())
                 && !f.path.as_os_str().is_empty();
             ui.horizontal(|ui| {
@@ -398,6 +451,8 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
             SeqRange::new(SeqTime::ZERO, SeqTime::ZERO + seq.duration())
         };
         let video = f.video.then(|| VideoSettings {
+            color: f.color,
+            hdr10: f.hdr10,
             codec: f.codec,
             width: f.width & !1,
             height: f.height & !1,
@@ -425,12 +480,14 @@ pub(super) fn export_dialog(s: &mut State, ctx: &egui::Context, f: &mut ExportFo
             s.ed.prefs.last_export_dir = Some(dir.to_path_buf());
         }
         s.ed.prefs.hardware_encoding = f.hardware;
+        s.ed.prefs.export_engine = f.engine;
         let settings = ExportSettings {
             path: path.clone(),
             sequence: f.sequence,
             range,
             video,
             audio,
+            engine: f.engine,
         };
         let snap = s.ed.snapshot();
         let job = ExportJob::start(snap, settings, s.gpu.clone(), s.ed.media.clone());

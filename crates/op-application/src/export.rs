@@ -16,6 +16,9 @@ use op_render::{Gpu, Renderer, Request};
 use parking_lot::Mutex;
 
 use crate::media::{ExactFrames, MediaService};
+use crate::render_engine::{
+    FframesRenderer, RenderEngine, scene_svg, validate_fframes, validate_fframes_hybrid,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportSettings {
@@ -24,6 +27,7 @@ pub struct ExportSettings {
     pub range: SeqRange,
     pub video: Option<VideoSettings>,
     pub audio: Option<AudioSettings>,
+    pub engine: RenderEngine,
 }
 
 /// A reduced copy of the frame an export is rendering (RGBA8, straight alpha).
@@ -45,6 +49,7 @@ pub struct Progress {
     /// Time spent working, pauses excluded.
     pub elapsed: Duration,
     pub encoder: String,
+    pub renderer: String,
     pub done: bool,
     pub error: Option<String>,
     pub cancelled: bool,
@@ -83,6 +88,24 @@ impl ExportJob {
         gpu: Arc<Gpu>,
         media: Arc<MediaService>,
     ) -> ExportJob {
+        Self::start_inner(project, settings, Some(gpu), media)
+    }
+
+    /// Initializes a native adapter only when the selected video renderer needs it.
+    pub fn start_headless(
+        project: Arc<Project>,
+        settings: ExportSettings,
+        media: Arc<MediaService>,
+    ) -> ExportJob {
+        Self::start_inner(project, settings, None, media)
+    }
+
+    fn start_inner(
+        project: Arc<Project>,
+        settings: ExportSettings,
+        gpu: Option<Arc<Gpu>>,
+        media: Arc<MediaService>,
+    ) -> ExportJob {
         let progress = Arc::new(Mutex::new(Progress::default()));
         let cancel = Arc::new(AtomicBool::new(false));
         let pause = Arc::new(AtomicBool::new(false));
@@ -102,9 +125,10 @@ impl ExportJob {
             .name("export".into())
             .spawn(move || {
                 let started = Instant::now();
+                let opened = AtomicBool::new(false);
                 let attempt = |s: &ExportSettings| {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        run(&project, s, gpu.clone(), media.clone(), &p, &c, &pa)
+                        run(&project, s, gpu.clone(), media.clone(), &p, &c, &pa, &opened)
                     }))
                     .unwrap_or_else(|panic| {
                         let what = panic
@@ -153,11 +177,11 @@ impl ExportJob {
                     ),
                     Err(e) if c.load(Ordering::Relaxed) => {
                         pr.cancelled = true;
-                        let _ = std::fs::remove_file(&s.path);
+                        if opened.load(Ordering::Relaxed) { let _ = std::fs::remove_file(&s.path); }
                         log::info!("export cancelled: {e}");
                     }
                     Err(e) => {
-                        let _ = std::fs::remove_file(&s.path);
+                        if opened.load(Ordering::Relaxed) { let _ = std::fs::remove_file(&s.path); }
                         log::error!("export failed: {e}");
                         pr.error = Some(e);
                     }
@@ -250,20 +274,85 @@ fn audio_streams(p: &Project, sid: SequenceId, out: &mut Vec<(AssetId, usize)>, 
 fn run(
     project: &Project,
     s: &ExportSettings,
-    gpu: Arc<Gpu>,
+    gpu: Option<Arc<Gpu>>,
     media: Arc<MediaService>,
     progress: &Mutex<Progress>,
     cancel: &AtomicBool,
     pause: &AtomicBool,
+    opened: &AtomicBool,
 ) -> Result<(), String> {
     let seq = project
         .sequence(s.sequence)
         .ok_or("the sequence no longer exists")?;
+    if let Some(video) = &s.video {
+        video.validate_delivery().map_err(|e| e.to_string())?;
+    }
     // frames are sampled at the output rate, which may differ from the sequence rate
     let rate = s.video.as_ref().map(|v| v.rate).unwrap_or(seq.rate());
     let total = rate.dur_to_frames_round(s.range.duration()).max(0) as u64;
     if total == 0 && s.video.is_some() {
         return Err("the export range is empty".into());
+    }
+    let hybrid = s.engine.is_fframes()
+        && s.video.as_ref().is_some_and(|v| {
+            v.input().bits() > 8 || validate_fframes(project, s.sequence).is_err()
+        });
+    let mut fframes = if let Some(v) = &s.video
+        && s.engine.is_fframes()
+    {
+        if hybrid {
+            validate_fframes_hybrid(project, s.sequence)?;
+            Some(FframesRenderer::start_hybrid(
+                s.engine, v.width, v.height, cancel,
+            )?)
+        } else {
+            Some(FframesRenderer::start_with_engine(
+                s.engine, v.width, v.height, cancel,
+            )?)
+        }
+    } else {
+        None
+    };
+    let gpu = if s.video.is_some() && (fframes.is_none() || hybrid) {
+        Some(
+            if s.engine == RenderEngine::WgpuSoftware
+                || (hybrid && s.engine == RenderEngine::FframesCpu)
+            {
+                Gpu::software().map_err(|e| format!("software renderer unavailable: {e}"))?
+            } else if let Some(gpu) = gpu {
+                gpu
+            } else {
+                Gpu::headless().map_err(|e| format!("native renderer unavailable: {e}"))?
+            },
+        )
+    } else {
+        None
+    };
+    if hybrid
+        && s.engine == RenderEngine::FframesGpu
+        && gpu.as_ref().is_some_and(|gpu| gpu.is_software())
+    {
+        return Err("fframes GPU hybrid requires a physical native effects adapter".into());
+    }
+    progress.lock().renderer = if let Some(renderer) = &fframes {
+        if hybrid {
+            format!(
+                "{} / hybrid RGBA16F / shared effects: {}",
+                renderer.description(),
+                gpu.as_ref().unwrap().description()
+            )
+        } else {
+            renderer.description().into()
+        }
+    } else if let Some(gpu) = &gpu {
+        gpu.description()
+    } else {
+        "Audio only".into()
+    };
+    // Create the shared effect processor before opening the destination as well.
+    let mut renderer = gpu.map(Renderer::new);
+    if let Some(renderer) = &mut renderer {
+        renderer.set_hdr_working(s.video.as_ref().is_some_and(|v| v.color.is_hdr()));
     }
     media.set_assets(project.assets.iter());
     if s.audio.is_some() {
@@ -280,11 +369,11 @@ fn run(
     // when Windows Controlled folder access blocks it); check it first for a clear message
     std::fs::File::create(&s.path)
         .map_err(|e| format!("cannot write {}: {e}", s.path.display()))?;
+    opened.store(true, Ordering::Relaxed);
     let (mut writer, encoder) = Writer::start(s)?;
     log::info!("export encoder: {encoder}");
     progress.lock().encoder = encoder;
     progress.lock().total = total;
-    let mut renderer = s.video.as_ref().map(|_| Renderer::new(gpu));
     let frames = ExactFrames {
         service: media.clone(),
     };
@@ -318,7 +407,7 @@ fn run(
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".into());
         }
-        if let (Some(r), Some(v)) = (renderer.as_mut(), s.video.as_ref()) {
+        if !hybrid && let (Some(r), Some(v)) = (renderer.as_mut(), s.video.as_ref()) {
             let t = s.range.start + rate.frames_to_dur(n as i64);
             let scale = v.width as f32 / seq.settings.width.max(1) as f32;
             let t0 = Instant::now();
@@ -342,7 +431,7 @@ fn run(
                 );
                 let target = r.display_target(pw, ph);
                 r.present_into(&frame, &target, false);
-                let rgba = r.read_texture(&target, 4);
+                let rgba = r.read_texture(&target, 4)?;
                 progress.lock().preview = Some(Arc::new(PreviewImage {
                     width: pw,
                     height: ph,
@@ -353,7 +442,7 @@ fn run(
             let t1 = Instant::now();
             // the frame's planes are read back while the next frame renders
             let pending = if (frame.width, frame.height) == (v.width, v.height) {
-                r.begin_delivery(&frame, v.codec.input())
+                r.begin_delivery_color(&frame, v.input(), v.color)
             } else {
                 // odd sizes: render at the exact output size
                 let fixed = r.work(v.width, v.height);
@@ -364,20 +453,103 @@ fn run(
                     frame.size(),
                     &fixed,
                 );
-                let p = r.begin_delivery(&fixed, v.codec.input());
+                let p = r.begin_delivery_color(&fixed, v.input(), v.color);
                 r.recycle(fixed);
                 p
             };
             r.recycle(frame);
             let previous = in_flight.replace(pending);
             if let Some(prev) = previous {
-                let planes = r.end_read(prev);
+                let planes = r.end_read(prev)?;
                 stage[1] += t1.elapsed().as_secs_f64();
                 // time blocked here means the encoder is the slowest stage
                 let t2 = Instant::now();
                 writer.send(Packet::Video(planes))?;
                 stage[2] += t2.elapsed().as_secs_f64();
             }
+        }
+        if let (Some(r), Some(v)) = (fframes.as_mut(), s.video.as_ref()) {
+            let t = s.range.start + rate.frames_to_dur(n as i64);
+            let since = Instant::now();
+            let mut working = None;
+            let pixels = if hybrid {
+                let processor = renderer
+                    .as_mut()
+                    .ok_or("shared effects processor missing")?;
+                let contributions = processor.render_contributions(&Request {
+                    project,
+                    sequence: s.sequence,
+                    time: t,
+                    scale: v.width as f32 / seq.settings.width.max(1) as f32,
+                    source: &frames,
+                });
+                let mut fixed = Vec::with_capacity(contributions.len());
+                for frame in contributions {
+                    if (frame.width, frame.height) == (v.width, v.height) {
+                        fixed.push(frame);
+                    } else {
+                        let target = processor.work(v.width, v.height);
+                        processor.pass(
+                            "fs_copy",
+                            &[&frame.view],
+                            op_render::params::P::new(),
+                            frame.size(),
+                            &target,
+                        );
+                        processor.recycle(frame);
+                        fixed.push(target);
+                    }
+                }
+                let list: Vec<_> = fixed.iter().map(|t| (t, 8)).collect();
+                let layers = processor.read_textures(&list)?;
+                for frame in fixed {
+                    processor.recycle(frame);
+                }
+                let floats = r.render_layers(layers, cancel)?;
+                let frame = processor.upload_working(v.width, v.height, &floats)?;
+                let pixels = if preview_at.is_none_or(|p| p.elapsed() >= Duration::from_millis(200))
+                {
+                    processor.rgba8(&frame)?
+                } else {
+                    Vec::new()
+                };
+                working = Some(frame);
+                pixels
+            } else {
+                let svg = scene_svg(project, s.sequence, t, &frames)?;
+                r.render(svg, v.width, v.height, cancel)?
+            };
+            stage[0] += since.elapsed().as_secs_f64();
+            if preview_at.is_none_or(|p| p.elapsed() >= Duration::from_millis(200)) {
+                preview_at = Some(Instant::now());
+                let k = (480.0 / v.width as f32)
+                    .min(270.0 / v.height as f32)
+                    .min(1.0);
+                let image = image::RgbaImage::from_raw(v.width, v.height, pixels.clone())
+                    .ok_or("invalid fframes pixels")?;
+                let preview = image::imageops::resize(
+                    &image,
+                    ((v.width as f32 * k) as u32).max(1),
+                    ((v.height as f32 * k) as u32).max(1),
+                    image::imageops::FilterType::Triangle,
+                );
+                progress.lock().preview = Some(Arc::new(PreviewImage {
+                    width: preview.width(),
+                    height: preview.height(),
+                    rgba: preview.into_raw(),
+                    frame: n,
+                }));
+            }
+            let since = Instant::now();
+            if let Some(frame) = working {
+                let processor = renderer.as_mut().unwrap();
+                let pending = processor.begin_delivery_color(&frame, v.input(), v.color);
+                processor.recycle(frame);
+                writer.send(Packet::Video(processor.end_read(pending)?))?;
+            } else {
+                writer.send(Packet::Rgba(pixels))?;
+            }
+            stage[2] += since.elapsed().as_secs_f64();
         }
         // audio up to the end of this frame (or everything, for audio-only exports)
         if let (Some(m), Some(a)) = (mixer.as_mut(), s.audio.as_ref()) {
@@ -423,7 +595,7 @@ fn run(
         }
     }
     if let (Some(r), Some(prev)) = (renderer.as_mut(), in_flight.take()) {
-        writer.send(Packet::Video(r.end_read(prev)))?;
+        writer.send(Packet::Video(r.end_read(prev)?))?;
     }
     writer.finish()
 }
@@ -431,6 +603,7 @@ fn run(
 enum Packet {
     Video(Vec<Vec<u8>>),
     Audio(Vec<f32>),
+    Rgba(Vec<u8>),
 }
 
 /// Encodes and writes on its own thread, so the next frame renders while this one encodes.
@@ -466,6 +639,7 @@ impl Writer {
                             let refs: Vec<&[u8]> = planes.iter().map(|p| p.as_slice()).collect();
                             muxer.push_video(&refs)
                         }
+                        Packet::Rgba(pixels) => muxer.push_rgba(&pixels),
                         Packet::Audio(buf) => muxer.push_audio(&buf),
                     }
                     .map_err(|e| e.to_string())?;
@@ -545,9 +719,11 @@ pub fn export_frame(
         scale: 1.0,
         source: &frames,
     });
-    let rgba = r.rgba8(&frame);
+    let rgba = r.rgba8(&frame)?;
     r.recycle(frame);
     let v = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: op_media::VideoCodec::Png,
         width: seq.settings.width,
         height: seq.settings.height,
@@ -609,11 +785,14 @@ mod tests {
         let media = MediaService::new(dir.path().join("cache"), 64 << 20);
         let path = dir.path().join("out.mov");
         let settings = ExportSettings {
+            engine: Default::default(),
             path: path.clone(),
             sequence: sid,
             range: SeqRange::new(SeqTime::ZERO, SeqTime::from_seconds(2.0)),
             // the file is written at 50 fps although the sequence runs at 25
             video: Some(VideoSettings {
+                color: Default::default(),
+                hdr10: Default::default(),
                 codec: op_media::VideoCodec::Png,
                 width: 64,
                 height: 36,

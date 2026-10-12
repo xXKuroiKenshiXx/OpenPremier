@@ -15,6 +15,10 @@ fn color(uv: vec2<f32>) -> vec4<f32> {
 }
 
 fn ycbcr(c: vec3<f32>) -> vec3<f32> {
+    if (prm(2) > 0.5) {
+        let y = dot(c, vec3<f32>(0.2627, 0.6780, 0.0593));
+        return vec3<f32>(y, (c.b - y) / 1.8814, (c.r - y) / 1.4746);
+    }
     let y = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
     return vec3<f32>(y, (c.b - y) / 1.8556, (c.r - y) / 1.5748);
 }

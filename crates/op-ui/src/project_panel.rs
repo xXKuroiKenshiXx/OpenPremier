@@ -213,8 +213,8 @@ fn move_into_bin(s: &mut State, items: Vec<ItemId>, bin: ItemId) {
 
 pub fn show(s: &mut State, ui: &mut Ui) {
     let full = ui.max_rect();
-    let top_h = 30.0;
-    let bottom_h = 28.0;
+    let top_h = ui.spacing().interact_size.y + 12.0;
+    let bottom_h = ui.spacing().interact_size.y + 10.0;
     let top = Rect::from_min_size(full.min, vec2(full.width(), top_h));
     let bottom = Rect::from_min_max(pos2(full.min.x, full.max.y - bottom_h), full.max);
     let content = Rect::from_min_max(pos2(full.min.x, top.max.y), pos2(full.max.x, bottom.min.y));
@@ -521,7 +521,7 @@ fn name_cell(s: &mut State, ui: &mut Ui, id: ItemId, r: Rect, name: &str, color:
         let mut text = s.proj.rename.as_ref().unwrap().1.clone();
         let resp = ui.put(
             r,
-            egui::TextEdit::singleline(&mut text).font(FontId::proportional(12.0)),
+            egui::TextEdit::singleline(&mut text).font(theme::body_font(ui)),
         );
         resp.request_focus();
         if resp.lost_focus() {
@@ -549,7 +549,7 @@ fn name_cell(s: &mut State, ui: &mut Ui, id: ItemId, r: Rect, name: &str, color:
             r.left_center(),
             Align2::LEFT_CENTER,
             name,
-            FontId::proportional(12.0),
+            theme::body_font(ui),
             color,
         );
     }
@@ -577,16 +577,16 @@ fn columns(width: f32) -> Vec<(&'static str, f32, f32)> {
 }
 
 fn list_view(s: &mut State, ui: &mut Ui, list: &[ItemId]) {
-    let row_h = 22.0;
+    let row_h = theme::row_height(ui);
     let full = ui.max_rect();
     let cols = columns(full.width());
-    let header = Rect::from_min_size(full.min, vec2(full.width(), 20.0));
+    let header = Rect::from_min_size(full.min, vec2(full.width(), row_h));
     ui.painter().rect_filled(header, 0.0, theme::PANEL_DARK);
     ui.painter().text(
         pos2(header.min.x + 30.0, header.center().y),
         Align2::LEFT_CENTER,
         t("Name"),
-        FontId::proportional(11.0),
+        theme::small_font(ui),
         theme::TEXT_DIM,
     );
     for (label, x0, x1) in &cols {
@@ -598,7 +598,7 @@ fn list_view(s: &mut State, ui: &mut Ui, list: &[ItemId]) {
             cell.left_center(),
             Align2::LEFT_CENTER,
             *label,
-            FontId::proportional(11.0),
+            theme::small_font(ui),
             theme::TEXT_DIM,
         );
     }

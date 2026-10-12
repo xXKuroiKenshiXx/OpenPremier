@@ -34,6 +34,27 @@ What they show:
 - **Reading frames back** from the graphics card costs 8 to 12 ms per 1080p frame; it now
   overlaps with rendering the next frame.
 
+## Many cuts
+
+`crates/op-application/tests/stress_edits.rs` cuts one long clip with three effects thousands of
+times (the way a remix or a YTPH is edited) and reports the time of each cut, the frame plan,
+saving and the memory the process holds:
+
+```bash
+OP_STRESS_CUTS=8000 cargo xtask cargo test --release -p op-application --test stress_edits -- --ignored --nocapture
+```
+
+| Clips | Before (cut / memory) | Now (cut / memory) |
+|---|---|---|
+| 1,000 | 5.6 ms / 3.1 GB | 0.3 ms / 0.2 GB |
+| 3,000 | 25 ms / 10.9 GB | 1 ms / 0.3 GB |
+| 16,000 | (out of memory) | 3.6 ms / 0.34 GB |
+
+Every undo step used to hold a full copy of each changed track, effect parameters included.
+The pieces of a cut now share their parameters until one is changed, and undo keeps at most
+about a million clip copies. Moving a selection of 16,000 clips takes about 0.5 s and saving it
+0.1 s (on a background thread).
+
 ## Effect previews
 
 The Effects panel is a list of names, as usual. The button at the right of the search box

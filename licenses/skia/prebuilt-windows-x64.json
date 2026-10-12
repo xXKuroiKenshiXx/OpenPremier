@@ -1,0 +1,56 @@
+{
+  "upstream_url": "https://github.com/rust-skia/skia-binaries/releases/download/0.153.3/skia-binaries-b7f043e0b1e2a850e702-x86_64-pc-windows-msvc-ganesh-jpegd-jpege-pdf-svg-textlayout-vulkan-webpd-webpe.tar.gz",
+  "license_file": "licenses/skia/LICENSE_SKIA.txt",
+  "archive_bytes": 24008468,
+  "features": "ganesh,jpegd,jpege,pdf,svg,textlayout,vulkan,webpd,webpe",
+  "corresponding_source_review": "pending: native Skia and embedded ICU/codec/font dependencies need exact source and notice review",
+  "upstream_digest": "sha256:080ab8fed9bfb022377914d43ed48ed64f184ee1b19c85f148b923794b0d968f",
+  "archive_sha256": "080ab8fed9bfb022377914d43ed48ed64f184ee1b19c85f148b923794b0d968f",
+  "crt": "dynamic MSVC",
+  "version": "0.153.3",
+  "rust_skia_revision": "b7f043e0b1e2a850e702245de811f01df1f6b0ff",
+  "skia_dependency_tag": "m153-0.101.2",
+  "license_sha256": "138ca93b23032de20f9ec3838e3bec7120bbb16a791b2bf02e4ba469e0bab558",
+  "verified_static_libraries": [
+    {
+      "name": "skia-bindings.lib",
+      "sha256": "ca6a1610e97a7d07dba2da0bc7c76ee512a141154c4dcc5823829917be6f7261",
+      "bytes": 3253348
+    },
+    {
+      "name": "skia.lib",
+      "sha256": "b6d265273d1c48919efada911b9fc0ee147db4ef998b3abf85b49e5685fbde99",
+      "bytes": 35527860
+    },
+    {
+      "name": "skparagraph.lib",
+      "sha256": "9694ac94d72198a0da1c8efd6196f17bf1bb13785ca05dfe11d32dcad1a039b7",
+      "bytes": 789038
+    },
+    {
+      "name": "skresources.lib",
+      "sha256": "1a72ad3c5792e04a9e438849466368302f4cf160b66c4b3e151768db96746445",
+      "bytes": 58966
+    },
+    {
+      "name": "skshaper.lib",
+      "sha256": "0cf706ffed29f0ce75503b4cc3cb02ae5bc0975820a8f37a6720b50a59c861ba",
+      "bytes": 8400860
+    },
+    {
+      "name": "skunicode_core.lib",
+      "sha256": "338578b97de4d07b74aa5befccc3c4a7e601f9e42056f90c64e4d2e7882d5259",
+      "bytes": 19946
+    },
+    {
+      "name": "skunicode_icu.lib",
+      "sha256": "d705d1f22008d78f7a7cf4207ed9cec5b2e13979bcd577625caaa979ab75bd4c",
+      "bytes": 14619564
+    },
+    {
+      "name": "svg.lib",
+      "sha256": "583065e46602eea599c083e33185f7cdebdcd329ee1accb4af403c09f06c7315",
+      "bytes": 811728
+    }
+  ]
+}

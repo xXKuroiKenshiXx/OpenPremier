@@ -79,8 +79,42 @@ pub struct Step {
     pub label: String,
     /// The project as it was before the step (for undo) or after it (for redo).
     pub project: Project,
+    /// Identity of the document held in `project`, independent of the event revision.
+    state: Arc<()>,
     merge_key: Option<String>,
     at: Instant,
+    /// Clips this step holds that the step before it does not share (see `weight`).
+    weight: usize,
+}
+
+/// Clip copies the undo steps may hold in all, about 220 MB; older steps are dropped beyond it.
+const CLIP_BUDGET: usize = 1_000_000;
+/// Steps kept even over the budget.
+const MIN_STEPS: usize = 30;
+
+/// How many clips `p` holds in tracks it does not share with `prev` (an edit copies only the
+/// tracks it changes; the others stay shared between steps).
+fn weight(p: &Project, prev: Option<&Project>) -> usize {
+    let mut n = 1;
+    for (id, seq) in &p.sequences {
+        let old = prev.and_then(|q| q.sequences.get(id));
+        if old.is_some_and(|o| Arc::ptr_eq(o, seq)) {
+            continue;
+        }
+        for (i, tr) in seq.video.iter().chain(seq.audio.iter()).enumerate() {
+            let shared = old.is_some_and(|o| {
+                o.video
+                    .iter()
+                    .chain(o.audio.iter())
+                    .nth(i)
+                    .is_some_and(|x| Arc::ptr_eq(x, tr))
+            });
+            if !shared {
+                n += tr.clips.len();
+            }
+        }
+    }
+    n
 }
 
 #[derive(Clone, Debug)]
@@ -88,9 +122,10 @@ pub struct History {
     undo: Vec<Step>,
     redo: Vec<Step>,
     limit: usize,
-    /// Increments on every change of the current revision; used for dirty tracking.
+    /// Monotonic event counter for caches/recovery, including undo and redo.
     revision: u64,
-    saved_revision: u64,
+    current_state: Arc<()>,
+    saved_state: Arc<()>,
 }
 
 impl Default for History {
@@ -101,12 +136,14 @@ impl Default for History {
 
 impl History {
     pub fn new(limit: usize) -> History {
+        let state = Arc::new(());
         History {
             undo: Vec::new(),
             redo: Vec::new(),
             limit: limit.max(1),
             revision: 0,
-            saved_revision: 0,
+            current_state: state.clone(),
+            saved_state: state,
         }
     }
 
@@ -114,6 +151,10 @@ impl History {
     /// a short time (dragging a value) collapse into one undo step.
     pub fn record(&mut self, label: impl Into<String>, before: Project, merge_key: Option<String>) {
         self.revision += 1;
+        let before_state = std::mem::replace(&mut self.current_state, Arc::new(()));
+        if !self.redo.is_empty() {
+            self.seal();
+        }
         self.redo.clear();
         let now = Instant::now();
         if let (Some(key), Some(last)) = (&merge_key, self.undo.last_mut())
@@ -123,18 +164,27 @@ impl History {
             last.at = now;
             return;
         }
+        let weight = weight(&before, self.undo.last().map(|s| &s.project));
         self.undo.push(Step {
             label: label.into(),
             project: before,
+            state: before_state,
             merge_key,
             at: now,
+            weight,
         });
         if self.undo.len() > self.limit {
             self.undo.remove(0);
-            // the saved state may have scrolled out; it can no longer be reached by undo
-            if self.saved_revision < self.revision.saturating_sub(self.limit as u64) {
-                self.saved_revision = u64::MAX;
-            }
+        }
+        // a timeline of many thousands of clips keeps fewer steps rather than all its memory
+        let mut total: usize = self.undo.iter().map(|s| s.weight).sum();
+        let mut drop = 0;
+        while total > CLIP_BUDGET && self.undo.len() - drop > MIN_STEPS {
+            total -= self.undo[drop].weight;
+            drop += 1;
+        }
+        if drop > 0 {
+            self.undo.drain(..drop);
         }
     }
 
@@ -165,11 +215,15 @@ impl History {
     pub fn undo(&mut self, current: &Project) -> Option<Project> {
         let step = self.undo.pop()?;
         self.revision += 1;
+        let state = std::mem::replace(&mut self.current_state, step.state);
+        self.seal();
         self.redo.push(Step {
             label: step.label.clone(),
             project: current.clone(),
+            state,
             merge_key: None,
             at: step.at,
+            weight: step.weight,
         });
         Some(step.project)
     }
@@ -177,11 +231,15 @@ impl History {
     pub fn redo(&mut self, current: &Project) -> Option<Project> {
         let step = self.redo.pop()?;
         self.revision += 1;
+        let state = std::mem::replace(&mut self.current_state, step.state);
+        self.seal();
         self.undo.push(Step {
             label: step.label.clone(),
             project: current.clone(),
+            state,
             merge_key: None,
             at: step.at,
+            weight: step.weight,
         });
         Some(step.project)
     }
@@ -213,7 +271,7 @@ impl History {
         self.undo.clear();
         self.redo.clear();
         self.revision += 1;
-        self.saved_revision = u64::MAX;
+        self.current_state = Arc::new(());
     }
 
     pub fn revision(&self) -> u64 {
@@ -221,12 +279,15 @@ impl History {
     }
 
     pub fn mark_saved(&mut self) {
-        self.saved_revision = self.revision;
+        // A later drag must not merge across the saved state and make it unreachable.
+        self.seal();
+        self.saved_state = self.current_state.clone();
     }
 
-    /// Whether anything changed since the last save (or since creation).
+    /// Whether the current document state differs from the last save (or creation).
+    /// Undo/redo can restore that identity while the event revision keeps increasing.
     pub fn is_dirty(&self) -> bool {
-        self.saved_revision != self.revision
+        !Arc::ptr_eq(&self.saved_state, &self.current_state)
     }
 }
 
@@ -276,5 +337,255 @@ mod tests {
         assert!(h.is_dirty());
         let changes = Changes::between(&Project::new("a"), &p);
         assert!(changes.settings);
+    }
+
+    fn rename(h: &mut History, p: &mut Project, name: &str, merge: Option<&str>) {
+        let before = p.clone();
+        let revision = h.revision();
+        p.name = name.into();
+        h.record("Rename", before, merge.map(str::to_string));
+        assert_eq!(
+            h.revision(),
+            revision + 1,
+            "each event advances the cache revision"
+        );
+    }
+
+    #[test]
+    fn undo_and_redo_restore_saved_identity_without_rewinding_revision() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", None);
+        h.mark_saved();
+        let saved = p.clone();
+        rename(&mut h, &mut p, "C", None);
+        assert!(h.is_dirty());
+        let revision = h.revision();
+        p = h.undo(&p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        assert_eq!(h.revision(), revision + 1);
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(
+            h.is_dirty(),
+            "a state older than the saved one is dirty too"
+        );
+        p = h.redo(&p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        p = h.redo(&p).unwrap();
+        assert_eq!(p.name, "C");
+        assert!(h.is_dirty());
+        assert_eq!(h.revision(), revision + 4);
+    }
+
+    #[test]
+    fn saving_seals_drag_to_preserve_saved_point_between_merged_gestures() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", Some("drag"));
+        rename(&mut h, &mut p, "C", Some("drag"));
+        assert_eq!(h.labels().1, 1);
+        let revision = h.revision();
+        h.mark_saved();
+        h.mark_saved();
+        assert_eq!(h.revision(), revision, "saving is not a document mutation");
+        let saved = p.clone();
+        rename(&mut h, &mut p, "D", Some("drag"));
+        rename(&mut h, &mut p, "E", Some("drag"));
+        assert_eq!(
+            h.labels().1,
+            2,
+            "drag after save cannot merge across the saved state"
+        );
+        assert!(h.is_dirty());
+        p = h.undo(&p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(h.is_dirty());
+        p = h.redo(&p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        p = h.redo(&p).unwrap();
+        assert_eq!(p.name, "E");
+        assert!(h.is_dirty());
+    }
+
+    #[test]
+    fn saved_initial_state_survives_many_merged_events_with_one_step_limit() {
+        let mut h = History::new(1);
+        let mut p = Project::new("A");
+        assert!(!h.is_dirty());
+        for name in ["B", "C", "D", "E", "F"] {
+            rename(&mut h, &mut p, name, Some("drag"));
+        }
+        assert_eq!(h.labels().1, 1);
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(
+            !h.is_dirty(),
+            "event count must not invalidate a saved state still reachable by undo"
+        );
+        p = h.redo(&p).unwrap();
+        assert_eq!(p.name, "F");
+        assert!(h.is_dirty());
+    }
+
+    #[test]
+    fn branching_uses_new_state_identity_even_at_an_old_saved_depth() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", None);
+        h.mark_saved();
+        rename(&mut h, &mut p, "C", None);
+        p = h.undo(&p).unwrap();
+        assert!(!h.is_dirty());
+        rename(&mut h, &mut p, "new C", None);
+        assert!(h.is_dirty());
+        assert!(!h.can_redo());
+        p = h.undo(&p).unwrap();
+        assert!(!h.is_dirty());
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        rename(&mut h, &mut p, "new B", None);
+        assert_eq!(h.labels().1, 1, "same depth as the discarded saved state");
+        assert!(
+            h.is_dirty(),
+            "a branch at the old saved index is a different state"
+        );
+        p = h.undo(&p).unwrap();
+        assert!(h.is_dirty());
+        p = h.redo(&p).unwrap();
+        assert_eq!(p.name, "new B");
+        assert!(h.is_dirty());
+    }
+
+    #[test]
+    fn undo_and_branch_end_prior_drag_merges() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", Some("drag"));
+        rename(&mut h, &mut p, "C", None);
+        p = h.undo(&p).unwrap();
+        rename(&mut h, &mut p, "D", Some("drag"));
+        assert_eq!(
+            h.labels().1,
+            2,
+            "branch cannot collapse into the earlier drag"
+        );
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "B");
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(!h.is_dirty());
+    }
+
+    #[test]
+    fn saved_state_eviction_cannot_make_other_retained_states_clean() {
+        let mut h = History::new(1);
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", None);
+        h.mark_saved();
+        rename(&mut h, &mut p, "C", None);
+        rename(&mut h, &mut p, "D", None);
+        assert_eq!(h.labels().1, 1);
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "C");
+        assert!(h.is_dirty());
+        let revision = h.revision();
+        assert!(h.undo(&p).is_none());
+        assert_eq!(h.revision(), revision);
+        p = h.redo(&p).unwrap();
+        assert_eq!(p.name, "D");
+        assert!(h.is_dirty());
+        h.mark_saved();
+        assert!(
+            !h.is_dirty(),
+            "an evicted saved identity can be replaced explicitly"
+        );
+    }
+
+    #[test]
+    fn history_jump_tracks_saved_state_and_noop_preserves_revision() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", None);
+        h.mark_saved();
+        let saved = p.clone();
+        rename(&mut h, &mut p, "C", None);
+        rename(&mut h, &mut p, "D", None);
+        let revision = h.revision();
+        p = h.jump(1, &p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        assert_eq!(h.revision(), revision + 2);
+        let revision = h.revision();
+        assert!(h.jump(1, &p).is_none());
+        assert_eq!(h.revision(), revision);
+        assert!(!h.is_dirty());
+        p = h.jump(0, &p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(h.is_dirty());
+        p = h.jump(1, &p).unwrap();
+        assert_eq!(p, saved);
+        assert!(!h.is_dirty());
+        p = h.jump(3, &p).unwrap();
+        assert_eq!(p.name, "D");
+        assert!(h.is_dirty());
+    }
+
+    #[test]
+    fn clear_invalidates_saved_identity_and_saving_noop_keeps_revision() {
+        let mut h = History::new(0);
+        let p = Project::new("A");
+        assert!(!h.is_dirty());
+        assert!(h.undo(&p).is_none());
+        assert!(h.redo(&p).is_none());
+        assert!(h.jump(0, &p).is_none());
+        assert_eq!(h.revision(), 0);
+        h.clear();
+        assert_eq!(h.revision(), 1);
+        assert!(h.is_dirty());
+        assert!(!h.can_undo() && !h.can_redo());
+        h.mark_saved();
+        h.mark_saved();
+        assert!(!h.is_dirty());
+        assert_eq!(h.revision(), 1);
+        let mut p = p;
+        rename(&mut h, &mut p, "B", None);
+        p = h.undo(&p).unwrap();
+        assert_eq!(p.name, "A");
+        assert!(!h.is_dirty());
+        h.clear();
+        assert!(h.is_dirty());
+        assert_eq!(h.revision(), 4);
+    }
+
+    #[test]
+    fn cloned_histories_share_saved_point_but_not_future_branch_identities() {
+        let mut h = History::default();
+        let mut p = Project::new("A");
+        rename(&mut h, &mut p, "B", None);
+        h.mark_saved();
+        let mut cloned = h.clone();
+        let mut branch = p.clone();
+        rename(&mut cloned, &mut branch, "C", None);
+        assert!(!h.is_dirty());
+        assert!(cloned.is_dirty());
+        assert_eq!(h.revision(), 1);
+        assert_eq!(cloned.revision(), 2);
+        branch = cloned.undo(&branch).unwrap();
+        assert_eq!(branch, p);
+        assert!(!cloned.is_dirty());
+        rename(&mut h, &mut p, "D", None);
+        assert!(h.is_dirty());
+        assert!(!cloned.is_dirty());
+        assert!(
+            format!("{cloned:?}").contains("History"),
+            "derived Debug remains available"
+        );
     }
 }

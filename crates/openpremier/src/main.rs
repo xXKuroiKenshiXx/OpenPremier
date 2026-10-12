@@ -11,6 +11,8 @@ Usage: openpremier [options] [project or media files...]
 
 Options:
   --portable     keep settings, caches and autosaves next to the program
+  --downgrade-prproj <in> <new-copy> [--target-version <number>]
+                 patch a copy for older Premiere (default version 1); no overwrite
   --self-test    check FFmpeg and the GPU renderer without opening a window
   --remove-silence <in> <out>
                  cut silences (and fillers, repeats) out of a file; see
@@ -137,7 +139,7 @@ fn self_test() -> Result<(), String> {
         scale: 1.0,
         source: &op_render::NoFrames,
     });
-    let rgba = r.rgba8(&frame);
+    let rgba = r.rgba8(&frame)?;
     let center = (90 * 320 + 160) * 4;
     let px = &rgba[center..center + 4];
     println!("center pixel: {px:?}");
@@ -168,6 +170,17 @@ fn serve_assistants(dirs: op_application::Dirs, project: Option<&PathBuf>) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--downgrade-prproj") {
+        let result = downgrade_project(&args[1..]);
+        match result {
+            Ok(message) => console(&message),
+            Err(e) => {
+                console(&format!("error: {e}"));
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print!("{USAGE}");
         return;
@@ -247,4 +260,24 @@ fn main() {
     }
     log::info!("OpenPremier closed normally");
     log::logger().flush();
+}
+
+fn downgrade_project(args: &[String]) -> Result<String, String> {
+    if args.len() != 2 && !(args.len() == 4 && args[2] == "--target-version") {
+        return Err("Usage: --downgrade-prproj <input.prproj> <new-copy.prproj> [--target-version <number>]".into());
+    }
+    let target = if args.len() == 4 {
+        args[3]
+            .parse::<u32>()
+            .map_err(|_| "invalid target version")?
+    } else {
+        1
+    };
+    let bytes = std::fs::read(&args[0]).map_err(|e| e.to_string())?;
+    op_project::prproj_version::save_copy(&bytes, target, Path::new(&args[1]))
+        .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Saved {} (Project version {target}). Only the version attribute changed; newer features may be lost or fail to open in older Premiere.",
+        args[1]
+    ))
 }

@@ -16,6 +16,7 @@
 
 pub mod analysis;
 pub mod detect;
+pub mod jumpcut;
 pub mod presets;
 pub mod text;
 

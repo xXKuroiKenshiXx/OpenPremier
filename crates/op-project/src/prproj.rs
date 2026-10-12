@@ -1,4 +1,4 @@
-//! Read-only import of Premiere Pro 2024 project files.
+//! Read-only import of Premiere Pro project files (partial schema support).
 //!
 //! The file is a gzip container holding an XML identity/reference graph. This importer:
 //!
@@ -96,12 +96,12 @@ pub fn decompress(bytes: &[u8]) -> Result<String, ProjectError> {
     }
     let text = String::from_utf8(out)
         .map_err(|_| ProjectError::Format("the project XML is not UTF-8".into()))?;
-    Ok(text.trim_start_matches('\u{feff}').to_string())
+    Ok(text)
 }
 
 /// Imports a `.prproj` file's bytes.
 pub fn import(bytes: &[u8], name: &str) -> Result<(Project, ImportReport), ProjectError> {
-    let text = decompress(bytes)?;
+    let text = project_xml(bytes)?;
     let doc =
         xml::parse(&text, Limits::default()).map_err(|e| ProjectError::Format(e.to_string()))?;
     if doc.name(0) != "PremiereData" {
@@ -112,6 +112,20 @@ pub fn import(bytes: &[u8], name: &str) -> Result<(Project, ImportReport), Proje
     let mut im = Importer::new(&doc, name);
     im.run()?;
     Ok((im.project, im.report))
+}
+
+/// Reads either a verified gzip container or an older, uncompressed UTF-8 XML project.
+/// Serialization versions are reported rather than used to reject a recognizable graph.
+pub fn project_xml(bytes: &[u8]) -> Result<String, ProjectError> {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return decompress(bytes);
+    }
+    if bytes.len() as u64 > MAX_XML {
+        return Err(ProjectError::Format("the project XML is too large".into()));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| ProjectError::Format("the project XML is not UTF-8".into()))?;
+    Ok(text.to_string())
 }
 
 struct Importer<'a> {
@@ -915,7 +929,7 @@ impl<'a> Importer<'a> {
             link: None,
             group: None,
             label: Label::None,
-            components: default_components(fixed, &mut ids),
+            components: default_components(fixed, &mut ids).into(),
             gain_db: 0.0,
             scale_to_frame: false,
             channels: (kind == TrackKind::Audio).then_some(ChannelLayout::Stereo),
@@ -1025,7 +1039,7 @@ impl<'a> Importer<'a> {
                         id,
                         effect: match_name.clone(),
                         enabled: false,
-                        params: Vec::new(),
+                        params: Vec::new().into(),
                         foreign: raw,
                     });
                     self.report.components_opaque += 1;
@@ -1501,6 +1515,18 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn imports_plain_xml_and_future_version_numbers_without_downgrading() {
+        for version in ["1", "42", "999"] {
+            let text = SYNTHETIC.replacen("Version=\"42\"", &format!("Version=\"{version}\""), 1);
+            let (p, report) = import(text.as_bytes(), "plain").unwrap();
+            assert_eq!(report.project_version, version);
+            assert_eq!(report.clips, 1);
+            p.validate().unwrap();
+        }
+        assert!(import(b"<not-premiere/>", "bad").is_err());
+    }
+
     /// Transition items are mapped by the component identity they reference and attached to
     /// the clip edge they cover; unimplemented effects become our equivalent. The transition
     /// layout here is synthetic: no fixture with populated transitions exists yet.
@@ -1601,5 +1627,9 @@ mod tests {
             n += 1;
         }
         eprintln!("{n} projects imported");
+        assert!(
+            n > 0,
+            "OPENPREMIER_PRPROJ_DIR contained no .prproj fixtures"
+        );
     }
 }

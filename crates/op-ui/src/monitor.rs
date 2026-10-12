@@ -29,6 +29,7 @@ struct RenderKey {
     scale: u32,
     alpha: bool,
     scope: Option<(op_render::ScopeKind, u32)>,
+    engine: op_application::render_engine::RenderEngine,
 }
 
 enum MotionDrag {
@@ -55,6 +56,9 @@ pub struct MonitorView {
     /// Zoom: 0 fits the frame in the panel, otherwise a fraction of the frame size.
     pub zoom: f32,
     drag: Option<MotionDrag>,
+    preview: Option<op_application::render_preview::FframesPreview<RenderKey>>,
+    requested: Option<RenderKey>,
+    error: Option<String>,
 }
 
 impl MonitorView {
@@ -68,12 +72,18 @@ impl MonitorView {
             show_alpha: false,
             zoom: 0.0,
             drag: None,
+            preview: None,
+            requested: None,
+            error: None,
         }
     }
 
     pub fn reset(&mut self) {
         self.key = None;
         self.drag = None;
+        self.preview.take();
+        self.requested = None;
+        self.error = None;
     }
 
     /// The texture of the last scope rendered with the program frame.
@@ -169,6 +179,7 @@ fn render(
         scale: (scale * 1000.0) as u32,
         alpha: v.show_alpha,
         scope,
+        engine: s.ed.prefs.preview_engine,
     };
     if v.key.as_ref() == Some(&key)
         && let Some(d) = &v.display
@@ -196,14 +207,81 @@ fn render(
             0
         },
     };
-    let frame = s.renderer.render(&op_render::Request {
-        project: &project,
-        sequence: sid,
-        time,
-        scale,
-        source: &frames,
-    });
-    let missing = s.renderer.stats.missing_frames;
+    let (frame, missing, rendered_key) = if key.engine.is_fframes() {
+        let preview = v.preview.get_or_insert_with(|| {
+            op_application::render_preview::FframesPreview::new(s.gpu.clone())
+        });
+        if v.requested.as_ref() != Some(&key) {
+            preview.request(op_application::render_preview::PreviewRequest {
+                key: key.clone(),
+                project,
+                sequence: sid,
+                time,
+                scale,
+                engine: key.engine,
+                frames,
+            });
+            v.requested = Some(key.clone());
+            v.error = None;
+        }
+        s.ctx
+            .request_repaint_after(op_application::render_preview::PREVIEW_POLL);
+        let result = preview.take().filter(|result| {
+            let mut comparable = result.key.clone();
+            if playing {
+                comparable.time = key.time;
+            }
+            // Decoder arrivals may advance while a frame is in flight; accept the image
+            // and request the newer media generation on the following UI frame.
+            comparable.media = key.media;
+            comparable == key
+        });
+        let Some(result) = result else {
+            if v.error.is_some() {
+                return None;
+            }
+            return v
+                .display
+                .as_ref()
+                .filter(|_| {
+                    v.key.as_ref().is_some_and(|old| {
+                        old.generation == key.generation
+                            && old.revision == key.revision
+                            && old.sequence == key.sequence
+                            && old.engine == key.engine
+                    })
+                })
+                .map(|d| (d.id, [d.tex.width, d.tex.height], aspect));
+        };
+        match result.pixels {
+            Ok(pixels) => match s
+                .renderer
+                .upload_working(result.width, result.height, &pixels)
+            {
+                Ok(frame) => (frame, result.missing, result.key),
+                Err(error) => {
+                    v.error = Some(error);
+                    return None;
+                }
+            },
+            Err(error) => {
+                v.error = Some(error);
+                return None;
+            }
+        }
+    } else {
+        v.preview.take();
+        v.requested = None;
+        v.error = None;
+        let frame = s.renderer.render(&op_render::Request {
+            project: &project,
+            sequence: sid,
+            time,
+            scale,
+            source: &frames,
+        });
+        (frame, s.renderer.stats.missing_frames, key)
+    };
     let reuse = v
         .display
         .as_ref()
@@ -237,8 +315,9 @@ fn render(
     if missing > 0 {
         s.ctx.request_repaint_after(Duration::from_millis(30));
         v.key = None;
+        v.requested = None;
     } else {
-        v.key = Some(key);
+        v.key = Some(rendered_key);
     }
     Some((id, [display.width, display.height], aspect))
 }
@@ -272,7 +351,7 @@ pub fn show(s: &mut State, ui: &mut Ui, which: Monitor) {
 
 fn body(s: &mut State, v: &mut MonitorView, ui: &mut Ui) {
     let full = ui.max_rect();
-    let controls_h = 74.0;
+    let controls_h = 74.0 + (ui.spacing().interact_size.y - 20.0) * 2.0;
     let pic_area =
         Rect::from_min_max(full.min, pos2(full.max.x, full.max.y - controls_h)).shrink(4.0);
     let controls = Rect::from_min_max(pos2(full.min.x, full.max.y - controls_h), full.max);
@@ -332,9 +411,17 @@ fn body(s: &mut State, v: &mut MonitorView, ui: &mut Ui) {
             }
         }
         None => {
-            let msg = match v.which {
-                Monitor::Program => t("No sequence open"),
-                Monitor::Source => t("Double-click a clip in the Project panel to open it here"),
+            let msg = if let Some(error) = &v.error {
+                error.as_str()
+            } else if s.ed.prefs.preview_engine.is_fframes() && v.requested.is_some() {
+                t("Rendering preview…")
+            } else {
+                match v.which {
+                    Monitor::Program => t("No sequence open"),
+                    Monitor::Source => {
+                        t("Double-click a clip in the Project panel to open it here")
+                    }
+                }
             };
             ui.painter().text(
                 pic_area.center(),
@@ -577,9 +664,9 @@ fn transport(s: &mut State, v: &mut MonitorView, ui: &mut Ui) {
         s.ed.scrub_audio(which);
     }
     // buttons: everything when there is room, the essentials when the monitor is narrow
-    let all = width >= 420.0;
-    let most = width >= 300.0;
-    let size = if most { 22.0 } else { 20.0 };
+    let size = ui.spacing().interact_size.y.max(22.0);
+    let all = width >= 14.0 * (size + 4.0) + 24.0;
+    let most = width >= 10.0 * (size + 4.0) + 16.0;
     ui.add_space(3.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;

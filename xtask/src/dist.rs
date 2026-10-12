@@ -50,20 +50,63 @@ pub fn release_build() -> Result {
     util::run(&mut c)
 }
 
+/// Build the isolated worker for every supported desktop package. Cargo metadata resolves
+/// its actual target directory, including container CARGO_TARGET_DIR overrides.
+pub fn worker_build() -> Result<PathBuf> {
+    let manifest = util::root().join("tools/fframes-worker/Cargo.toml");
+    let manifest = manifest.to_str().ok_or("worker manifest is not UTF-8")?;
+    let mut build = configured_cargo(&[
+        "build",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        manifest,
+    ])?;
+    if cfg!(target_os = "linux") {
+        build.env("RUSTFLAGS", "-C link-arg=-Wl,-rpath,$ORIGIN/../lib");
+    }
+    util::run(&mut build)?;
+    let meta: serde_json::Value = serde_json::from_str(&util::output(&mut configured_cargo(&[
+        "metadata",
+        "--no-deps",
+        "--format-version",
+        "1",
+        "--manifest-path",
+        manifest,
+    ])?)?)?;
+    let target = meta["target_directory"]
+        .as_str()
+        .ok_or("worker target directory missing")?;
+    Ok(PathBuf::from(target)
+        .join("release")
+        .join(if cfg!(windows) {
+            "OpenPremier-FFrames.exe"
+        } else {
+            "OpenPremier-FFrames"
+        }))
+}
+
 fn windows_zip() -> Result<PathBuf> {
-    release_build()?;
     let version = util::version()?;
     let name = format!("{}-{version}-windows-x64", util::APP_NAME);
     let dist = util::dist_dir();
     let stage = dist.join(&name);
-    if stage.exists() {
-        fs::remove_dir_all(&stage)?;
+    let zip = dist.join(format!("{name}.zip"));
+    let sources = dist.join(format!("OpenPremier-{version}-source.zip"));
+    if stage.exists() || zip.exists() || sources.exists() {
+        return Err("Windows package destination already exists; preserve or move the previous stage and ZIP before packaging".into());
     }
+    release_build()?;
+    // A distinct Cargo graph keeps fframes' native FFmpeg binding out of the editor's graph.
+    let worker = worker_build()?;
+    verify_skia_receipt()?;
+    verify_ffmpeg_receipt()?;
     fs::create_dir_all(stage.join("licenses"))?;
     let exe = util::root()
         .join("target/release")
         .join(format!("{}.exe", util::BIN));
     fs::copy(&exe, stage.join(format!("{}.exe", util::APP_NAME)))?;
+    fs::copy(worker, stage.join("OpenPremier-FFrames.exe"))?;
     for lib in deps::runtime_libraries()? {
         let file = lib.file_name().unwrap().to_string_lossy().to_string();
         if FFMPEG_LIBS
@@ -73,16 +116,93 @@ fn windows_zip() -> Result<PathBuf> {
             fs::copy(&lib, stage.join(&file))?;
         }
     }
+    for lib in deps::fframes_msvc_runtime()? {
+        fs::copy(
+            &lib,
+            stage.join(lib.file_name().ok_or("runtime filename missing")?),
+        )?;
+    }
     write_docs(&stage, "windows")?;
     self_test(&stage.join(format!("{}.exe", util::APP_NAME)))?;
-    let zip = dist.join(format!("{name}.zip"));
+    self_test(&stage.join("OpenPremier-FFrames.exe"))?;
+    crate::legal::source_archive()?;
     zip_dir(&stage, &zip, &name)?;
     Ok(zip)
+}
+
+fn verify_ffmpeg_receipt() -> Result {
+    let receipt: serde_json::Value = serde_json::from_str(&fs::read_to_string(
+        util::root().join("licenses/ffmpeg/prebuilt-windows-x64.json"),
+    )?)?;
+    for library in receipt["verified_dlls"]
+        .as_array()
+        .ok_or("FFmpeg binary receipt is missing DLLs")?
+    {
+        let name = library["name"]
+            .as_str()
+            .ok_or("FFmpeg DLL receipt name missing")?;
+        if name.contains(['/', '\\']) {
+            return Err("invalid FFmpeg receipt filename".into());
+        }
+        let path = deps::ffmpeg_dir().join("bin").join(name);
+        if library["sha256"].as_str() != Some(util::sha256_file(&path)?.as_str()) {
+            return Err(format!("FFmpeg DLL identity changed: {name}; review and retain its exact source/build provenance before packaging").into());
+        }
+    }
+    Ok(())
+}
+
+/// A cached native archive must match its recorded licenses and static library identity.
+fn verify_skia_receipt() -> Result {
+    let root = util::root();
+    let receipt: serde_json::Value = serde_json::from_str(&fs::read_to_string(
+        root.join("licenses/skia/prebuilt-windows-x64.json"),
+    )?)?;
+    if receipt["license_sha256"].as_str()
+        != Some(util::sha256_file(&root.join("licenses/skia/LICENSE_SKIA.txt"))?.as_str())
+    {
+        return Err("Skia license receipt checksum mismatch".into());
+    }
+    let libraries = receipt["verified_static_libraries"]
+        .as_array()
+        .filter(|libraries| !libraries.is_empty())
+        .ok_or("Skia static library receipt missing")?;
+    for entry in fs::read_dir(root.join("tools/fframes-worker/target/release/build"))? {
+        let directory = entry?.path().join("out/skia");
+        if !directory.is_dir() {
+            continue;
+        }
+        let mut matches = true;
+        for library in libraries {
+            let name = library["name"]
+                .as_str()
+                .ok_or("Skia library name missing")?;
+            if !name.ends_with(".lib") || name.contains(['/', '\\']) || name.contains("..") {
+                return Err("invalid Skia receipt library path".into());
+            }
+            let path = directory.join(name);
+            if !path.is_file()
+                || library["sha256"].as_str() != Some(util::sha256_file(&path)?.as_str())
+            {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            return Ok(());
+        }
+    }
+    Err("Built Skia libraries do not match the pinned prebuilt receipt; review the new native source/license provenance".into())
 }
 
 /// License, readme and third-party notices shipped with every package.
 pub fn write_docs(dir: &Path, platform: &str) -> Result {
     let root = util::root();
+    copy_legal_materials(&root.join("licenses"), &dir.join("licenses"))?;
+    fs::copy(
+        root.join("docs/hdr-and-platform-acceptance.md"),
+        dir.join("HDR-PLATFORM-ACCEPTANCE.md"),
+    )?;
     fs::copy(root.join("LICENSE"), dir.join("LICENSE.txt"))?;
     let ff_license = deps::ffmpeg_dir().join("LICENSE.txt");
     if ff_license.exists() {
@@ -112,12 +232,134 @@ pub fn write_docs(dir: &Path, platform: &str) -> Result {
          {start}\r\n\r\n\
          Supported structures from Adobe Premiere Pro (.prproj) import read-only; Final Cut Pro XML and OpenTimelineIO interchange open through File > Open Project.\r\n\
          The keyboard shortcuts match the Premiere Pro defaults; your own .kys file can be imported in Edit > Keyboard Shortcuts.\r\n\r\n\
+         Export Settings > Render Engine selects native GPU, native software, fframes CPU or fframes GPU. The worker stays beside the editor; Windows also needs its bundled MSVC runtime. Hybrid RGBA16F shares the editor's effect/transition/blend catalog; the independent SVG path covers a smaller SDR subset. GPU mode requires a physical Vulkan GPU on Windows/Linux or Metal on macOS, with no CPU fallback. Preferences selects asynchronous native/fframes previews.\r\n\r\n\
+         Delivery Color selects SDR Rec.709 or HDR Rec.2100 PQ/HLG with 10-bit HEVC/ProRes and authored HDR10 metadata. See HDR-PLATFORM-ACCEPTANCE.md for validated scope and remaining grading/platform/UI limits.\r\n\r\n\
          License: GNU General Public License version 3 or later (LICENSE.txt).\r\n\
          Third-party components and their licenses: THIRD-PARTY-NOTICES.txt.\r\n\r\n\
+         Isolated fframes worker notices: licenses/FFrames-THIRD-PARTY-NOTICES.txt.\r\n\r\n\
+         Exact application source snapshot: OpenPremier-{version}-source.zip, alongside this package. Native-source/provenance review remains pending: licenses/DISTRIBUTION-REVIEW.md. Local validation is not redistribution approval.\r\n\r\n\
          Adobe and Premiere Pro are trademarks of Adobe Inc. OpenPremier is an independent project and is not affiliated with Adobe.\r\n"
     );
     fs::write(dir.join("README.txt"), readme)?;
     fs::write(dir.join("THIRD-PARTY-NOTICES.txt"), third_party_notices()?)?;
+    let (rust_notices, sources) = crate::legal::notices(&crate::legal::metadata(false)?)?;
+    fs::write(
+        dir.join("licenses/Rust-THIRD-PARTY-NOTICES.txt"),
+        rust_notices,
+    )?;
+    fs::write(
+        dir.join("licenses/Rust-SOURCES.json"),
+        serde_json::to_string_pretty(&sources)?,
+    )?;
+    fs::copy(root.join("NOTICE.md"), dir.join("NOTICE.md"))?;
+    if platform == "windows" {
+        fs::copy(
+            root.join("licenses/skia/LICENSE_SKIA.txt"),
+            dir.join("licenses/Skia-LICENSE.txt"),
+        )?;
+        fs::copy(
+            root.join("licenses/skia/prebuilt-windows-x64.json"),
+            dir.join("licenses/Skia-PREBUILT.json"),
+        )?;
+        fs::copy(
+            root.join("docs/legal/skia-and-msvc.md"),
+            dir.join("licenses/Skia-MSVC-REVIEW.md"),
+        )?;
+    }
+    fs::copy(
+        root.join("docs/legal/audit-2026-10-07.md"),
+        dir.join("licenses/DISTRIBUTION-REVIEW.md"),
+    )?;
+    fs::write(
+        dir.join("licenses/Native-BINARIES.json"),
+        serde_json::to_string_pretty(&crate::legal::native_inventory()?)?,
+    )?;
+    {
+        // Every platform now bundles the worker and retains its original notices.
+        let meta_text = util::output(
+            Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+                .current_dir(util::root())
+                .args([
+                    "metadata",
+                    "--format-version",
+                    "1",
+                    "--locked",
+                    "--manifest-path",
+                    "tools/fframes-worker/Cargo.toml",
+                ]),
+        )?;
+        let meta: serde_json::Value = serde_json::from_str(&meta_text)?;
+        let mut notices =
+            String::from("OpenPremier-FFrames worker dependencies (separate Cargo graph):\n\n");
+        // Published fframes crates omit their workspace-level license file. Ship the exact
+        // upstream notice explicitly rather than relying only on package license metadata.
+        notices.push_str("fframes workspace MIT notice (upstream revision 30b48f3da60040e0fd7c811fdcd5b159e70a5b02):\n");
+        notices.push_str(&fs::read_to_string(
+            root.join("tools/fframes-worker/licenses/fframes-MIT.txt"),
+        )?);
+        notices.push_str("\n\n");
+        for package in meta["packages"]
+            .as_array()
+            .ok_or("missing worker packages")?
+        {
+            notices.push_str(&format!(
+                "{} {} — {}\n{}\n\n",
+                package["name"].as_str().unwrap_or(""),
+                package["version"].as_str().unwrap_or(""),
+                package["license"].as_str().unwrap_or(""),
+                package["repository"].as_str().unwrap_or("")
+            ));
+            if let Some(manifest) = package["manifest_path"].as_str() {
+                let root = Path::new(manifest).parent().ok_or("invalid crate path")?;
+                for name in [
+                    "LICENSE",
+                    "LICENSE.txt",
+                    "LICENSE-MIT",
+                    "LICENSE-APACHE",
+                    "LICENSE-MPL",
+                ] {
+                    let path = root.join(name);
+                    if path.is_file()
+                        && let Ok(license) = fs::read_to_string(&path)
+                    {
+                        notices.push_str(&license);
+                        notices.push_str("\n\n");
+                    }
+                }
+            }
+        }
+        fs::write(
+            dir.join("licenses/FFrames-THIRD-PARTY-NOTICES.txt"),
+            notices,
+        )?;
+        let (complete, sources) = crate::legal::notices(&meta)?;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(dir.join("licenses/FFrames-THIRD-PARTY-NOTICES.txt"))?;
+        file.write_all(complete.as_bytes())?;
+        fs::write(
+            dir.join("licenses/FFrames-SOURCES.json"),
+            serde_json::to_string_pretty(&sources)?,
+        )?;
+    }
+    Ok(())
+}
+
+fn copy_legal_materials(source: &Path, target: &Path) -> Result {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            return Err("license material must not follow a symlink".into());
+        }
+        let to = target.join(entry.file_name());
+        if kind.is_dir() {
+            copy_legal_materials(&entry.path(), &to)?;
+        } else if kind.is_file() {
+            fs::copy(entry.path(), to)?;
+        }
+    }
     Ok(())
 }
 
@@ -166,7 +408,8 @@ fn third_party_notices() -> Result<String> {
     text.push_str(
         "License: GNU General Public License version 3 or later (licenses/FFmpeg-LICENSE.txt).\r\n",
     );
-    text.push_str("Source code: https://ffmpeg.org/releases/ and https://github.com/BtbN/FFmpeg-Builds (build scripts).\r\n\r\n");
+    text.push_str("Upstream source locations: https://ffmpeg.org/releases/ and https://github.com/BtbN/FFmpeg-Builds. These generic URLs are not proof of corresponding source for the supplied DLLs. Redistribution review remains pending (licenses/DISTRIBUTION-REVIEW.md).\r\n\r\n");
+    text.push_str("Original Rust copyright/license/NOTICE texts: licenses/Rust-THIRD-PARTY-NOTICES.txt. Exact crate sources/checksums: licenses/Rust-SOURCES.json.\r\n\r\n");
     text.push_str("Inter typeface (Inter Regular and SemiBold), Copyright (c) 2016 The Inter Project Authors, SIL Open Font License 1.1 (licenses/Inter-OFL.txt), https://github.com/rsms/inter
 
 ");
@@ -212,7 +455,7 @@ pub fn self_test(program: &Path) -> Result {
 }
 
 fn zip_dir(dir: &Path, to: &Path, prefix: &str) -> Result {
-    let file = fs::File::create(to)?;
+    let file = fs::File::create_new(to)?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated)

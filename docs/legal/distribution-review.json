@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "status": "pending",
+  "reviewed_revision": null,
+  "reviewed_source_digest": null,
+  "corresponding_source": null,
+  "native_source_manifest": null,
+  "provenance_review": null,
+  "blockers": [
+    "FFmpeg binary identity verified against the exact 2026-09-28 archive; finish matching enabled external-library sources, patches and build materials.",
+    "Provide sources for the exact distributed OpenPremier tree and native GPL components.",
+    "Resolve proprietary binary/JavaScript research versus the clean-room policy.",
+    "Review crates missing notice files and confirm branding/model provenance.",
+    "Skia source revision/DEPS and pinned dependency notices retained; confirm build reachability, complete embedded source correspondence and applicable MSVC redist license entitlement."
+  ],
+  "technical_evidence": {
+    "ffmpeg_receipt": "licenses/ffmpeg/prebuilt-windows-x64.json",
+    "native_source_candidates": "licenses/native-source-candidates.json",
+    "skia_deps_notices": "licenses/skia/native-notices/inventory.json",
+    "scope": "Partial evidence; not publication approval or complete native corresponding source."
+  }
+}

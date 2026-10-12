@@ -488,6 +488,12 @@ impl Editor {
             "cmd.graphics.add.shape.ellipse" => {
                 self.add_graphic(catalog::SHAPE, Some(1));
             }
+            "op.captions.split" => {
+                self.split_caption_at_playhead();
+            }
+            "op.captions.merge" => {
+                self.merge_selected_captions();
+            }
             "op.captions.new" => {
                 self.add_graphic(catalog::CAPTION, None);
             }
@@ -1198,6 +1204,17 @@ impl Editor {
         track: Option<TrackRef>,
     ) -> Option<ClipId> {
         let sid = self.active?;
+        self.place_item_in(sid, item, at, track)
+    }
+
+    /// An asynchronous paste keeps the sequence and insertion time chosen at Ctrl+V.
+    pub fn place_item_in(
+        &mut self,
+        sid: SequenceId,
+        item: ItemId,
+        at: Option<SeqTime>,
+        track: Option<TrackRef>,
+    ) -> Option<ClipId> {
         let spec = SourceClip::from_item(&self.project, item).ok()?;
         let t = at.unwrap_or_else(|| self.playhead()).max(SeqTime::ZERO);
         let seq = self.project.sequence(sid)?.clone();
@@ -1242,7 +1259,8 @@ impl Editor {
             audio.iter().flatten().map(|a| a + 1).max().unwrap_or(0),
         );
         let patch = Patch { video, audio };
-        let ids = self.seq_edit("Paste", |p, sid, opts| {
+        let opts = self.opts();
+        let ids = self.edit("Paste", |p| {
             let s = p.sequence(sid).unwrap();
             let (have_v, have_a) = (s.video.len(), s.audio.len());
             for _ in have_v..need_v {
@@ -1261,7 +1279,9 @@ impl Editor {
             }
             overwrite(p, sid, &spec, t, &patch, opts)
         })?;
-        self.selection = Selection::only(ids.clone());
+        if self.active == Some(sid) {
+            self.selection = Selection::only(ids.clone());
+        }
         ids.first().copied()
     }
 
@@ -1336,7 +1356,7 @@ impl Editor {
                 link: None,
                 group: None,
                 label: Label::Rose,
-                components,
+                components: components.into(),
                 gain_db: 0.0,
                 scale_to_frame: false,
                 channels: None,
@@ -1566,6 +1586,35 @@ mod tests {
             (TrackRef::video(0), SeqTime::from_seconds(12.0))
         );
         assert_eq!(e.selection.clips, vec![free]);
+    }
+
+    #[test]
+    fn delayed_paste_keeps_its_original_sequence_and_time() {
+        let _guard = crate::recovery::TEST_GUARD.lock();
+        let (mut e, _dir) = editor();
+        let item = matte(&mut e);
+        e.new_sequence("First", SequenceSettings::default());
+        let first = e.active.unwrap();
+        e.new_sequence("Second", SequenceSettings::default());
+        let second = e.active.unwrap();
+        e.set_playhead(SeqTime::from_seconds(8.0));
+        let clip = e
+            .place_item_in(first, item, Some(SeqTime::from_seconds(2.0)), None)
+            .unwrap();
+        assert_eq!(e.active, Some(second));
+        assert_eq!(
+            e.project.sequence(first).unwrap().clip(clip).unwrap().start,
+            SeqTime::from_seconds(2.0)
+        );
+        assert!(
+            e.active_seq()
+                .unwrap()
+                .video
+                .iter()
+                .all(|t| t.clips.is_empty())
+        );
+        e.undo();
+        assert!(e.project.sequence(first).unwrap().clip(clip).is_none());
     }
 
     #[test]

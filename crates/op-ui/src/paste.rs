@@ -51,6 +51,7 @@ impl Payload {
 /// A pasted image waiting to be saved: its data (downloaded in the background for links) and,
 /// once chosen, the folder it goes to.
 pub struct Job {
+    pub sequence: Option<op_core::SequenceId>,
     pub id: u64,
     pub name: String,
     /// Where it comes from, for the dialog.

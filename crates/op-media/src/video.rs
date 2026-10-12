@@ -266,6 +266,12 @@ fn direct_layout(fmt: Pixel) -> Option<PixelLayout> {
             alpha: true,
             bits: 10,
         }),
+        YUVA444P12LE => Some(PixelLayout::Yuv16 {
+            chroma_w: 0,
+            chroma_h: 0,
+            alpha: true,
+            bits: 12,
+        }),
         YUVA422P10LE => Some(PixelLayout::Yuv16 {
             chroma_w: 1,
             chroma_h: 0,

@@ -571,6 +571,8 @@ pub fn cut_file(
         };
         (
             Some(VideoSettings {
+                color: Default::default(),
+                hdr10: Default::default(),
                 codec,
                 width: seq.settings.width & !1,
                 height: seq.settings.height & !1,
@@ -602,6 +604,7 @@ pub fn cut_file(
     let job = crate::export::ExportJob::start(
         ed.snapshot(),
         crate::export::ExportSettings {
+            engine: Default::default(),
             path: output.to_path_buf(),
             sequence: sid,
             range: SeqRange::new(SeqTime::ZERO, SeqTime::ZERO + seq.duration()),

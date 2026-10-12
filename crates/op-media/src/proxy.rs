@@ -97,6 +97,8 @@ fn write(
     let mut decoder = ctx.decoder().video()?;
     let (pw, ph) = proxy_size(decoder.width(), decoder.height(), short_side);
     let settings = VideoSettings {
+        color: Default::default(),
+        hdr10: Default::default(),
         codec: VideoCodec::H264,
         width: pw,
         height: ph,
@@ -244,6 +246,8 @@ mod tests {
         let src = dir.path().join("cam.mp4");
         let (w, h) = (1280u32, 720u32);
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: w,
             height: h,
@@ -292,6 +296,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("c.mp4");
         let v = VideoSettings {
+            color: Default::default(),
+            hdr10: Default::default(),
             codec: VideoCodec::H264,
             width: 320,
             height: 240,

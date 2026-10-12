@@ -24,11 +24,17 @@ no contiene código ni recursos de Adobe y no está afiliado con Adobe Inc.
 
 ## Estado actual
 
-La versión `0.9.0` es una versión alfa funcional para Windows, Linux y macOS. La aplicación ya se puede
+La versión `0.10.0` es una versión alfa funcional para Windows, Linux y macOS. La aplicación ya se puede
 compilar, abrir, probar y empaquetar, pero todavía no está lista para sustituir un editor comercial
 en todos los trabajos de producción.
 
 ### Funciones disponibles
+
+- Plugins nativos incluidos: Curvas de movimiento con Bezier, presets y rebote; Portales de carpetas;
+  Acciones rápidas con búsqueda, favoritos, macros y atajos. Activar/desactivar desde Preferencias.
+  Explorador de plugins todavía sin catálogo. Efectos nativos de parallax, cámara para manga,
+  marcos, ocultación de diálogo y transición de hoja; ralentización/frenado de audio y mejoras
+  del desfasador de tono. Ver [docs/native-plugins.md](docs/native-plugins.md).
 
 - Timeline multipista con insert, overwrite, razor, ripple, roll, slip, slide, rate stretch,
   snapping, nesting, marcadores, transiciones y keyframes.
@@ -47,6 +53,9 @@ en todos los trabajos de producción.
   (karaoke, caja resaltada, pop, palabra a palabra, neón, creador...), en el idioma hablado o
   traducidos al inglés. El panel Subtítulos cambia el estilo de todos a la vez y permite corregir
   el texto. También importa y exporta SRT y WebVTT.
+- El panel Subtítulos permite dividir en el cabezal entre palabras y unir subtítulos contiguos
+  del mismo estilo y pista, con un paso de deshacer y conservación de los tiempos. Ver
+  [docs/caption-editing.md](docs/caption-editing.md).
 - Quitar silencios (menú Clip): detecta y corta silencios, muletillas, palabras repetidas y tomas
   repetidas con cinco métodos (volumen, relativo, ruido adaptable, banda de voz y detector de voz
   por IA), con vista previa para revisar cada corte y también por línea de comandos
@@ -75,6 +84,11 @@ en todos los trabajos de producción.
 - Mezclador de audio en punto flotante, medidores y salida a dispositivos.
 - Formato nativo `.opproj`, intercambio OTIO/FCP XML/EDL e importación parcial de `.prproj`; los
   efectos y transiciones que no existen tal cual se sustituyen por el equivalente más cercano.
+- Archivo > Degradar proyecto de Adobe Premiere: guarda una copia con un número de versión
+  menor para probarla en un Premiere anterior. También carga presets `.sqpreset` al crear una
+  secuencia. Ver [docs/premiere-compatibility.md](docs/premiere-compatibility.md).
+- Perfil OpenJumpCuts y carga de sus cuatro ajustes JSON en los diálogos de silencios,
+  con el detector nativo. Ver [docs/openjumpcuts.md](docs/openjumpcuts.md).
 - Interfaz en español e inglés e importación de mapas de teclado `.kys`.
 - Pegado de imágenes con Ctrl+V desde el navegador, otros programas o el explorador de archivos:
   la imagen se guarda, se importa y queda lista en la línea de tiempo.

@@ -103,7 +103,7 @@ impl Scene {
             scale: 1.0,
             source: &NoFrames,
         });
-        let px = r.rgba8(&frame);
+        let px = r.rgba8(&frame).expect("frame readback");
         r.recycle(frame);
         px
     }
@@ -118,6 +118,143 @@ fn near(a: [u8; 4], b: [u8; 4], tol: i32) -> bool {
     a.iter()
         .zip(b.iter())
         .all(|(x, y)| (*x as i32 - *y as i32).abs() <= tol)
+}
+
+#[test]
+fn manga_effects_composite_and_page_turns_reveal_the_next_image() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let mut r = Renderer::new(gpu);
+    let mut scene = Scene::new();
+    let red = scene.matte(Rgba::new(1.0, 0.0, 0.0, 1.0));
+    let blue = scene.matte(Rgba::new(0.0, 0.0, 1.0, 1.0));
+    let background = scene.put(red, 0, 0.0, 4.0);
+    let foreground = scene.put(blue, 1, 0.0, 4.0);
+    scene.set(
+        foreground,
+        "op.video.dialogue_occlusion",
+        "center",
+        Value::Point([0.5, 0.5]),
+    );
+    let pixels = scene.render(&mut r, 1.0);
+    assert!(
+        near(at(&pixels, 32, 18), [255, 0, 0, 255], 2),
+        "occlusion reveals the background"
+    );
+    assert!(
+        near(at(&pixels, 4, 4), [0, 0, 255, 255], 2),
+        "outside mask keeps foreground"
+    );
+    scene
+        .p
+        .sequence_mut(scene.seq)
+        .unwrap()
+        .clip_mut(foreground)
+        .unwrap()
+        .components
+        .retain(|c| c.effect != "op.video.dialogue_occlusion");
+    scene.set(
+        foreground,
+        "op.video.parallax",
+        "camera",
+        Value::Point([0.9, 0.5]),
+    );
+    let pixels = scene.render(&mut r, 1.0);
+    assert!(
+        at(&pixels, 63, 18)[0] > 240,
+        "transparent parallax edges reveal lower layer"
+    );
+    scene
+        .p
+        .sequence_mut(scene.seq)
+        .unwrap()
+        .clip_mut(foreground)
+        .unwrap()
+        .components
+        .retain(|c| c.effect != "op.video.parallax");
+    scene.set(
+        foreground,
+        "op.video.manga_frame",
+        "horizontal",
+        Value::Float(10.0),
+    );
+    let pixels = scene.render(&mut r, 1.0);
+    assert!(at(&pixels, 1, 18)[2] < 5, "dark border");
+    assert!(at(&pixels, 32, 18)[2] > 240, "center retains image");
+    scene
+        .p
+        .sequence_mut(scene.seq)
+        .unwrap()
+        .clip_mut(background)
+        .unwrap()
+        .enabled = false;
+    scene
+        .p
+        .sequence_mut(scene.seq)
+        .unwrap()
+        .clip_mut(foreground)
+        .unwrap()
+        .enabled = false;
+    let bars = scene.p.add_item(
+        scene.p.root,
+        "Bars",
+        ItemKind::Synthetic {
+            generator: Generator::BarsAndTone,
+            duration: Dur::from_seconds(10.0),
+        },
+    );
+    let camera = scene.put(bars, 2, 0.0, 4.0);
+    scene.set(
+        camera,
+        "op.video.manga_camera",
+        "duration",
+        Value::Float(4.0),
+    );
+    assert_ne!(
+        scene.render(&mut r, 0.0),
+        scene.render(&mut r, 3.99),
+        "camera actually traverses the image"
+    );
+    let mut scene = Scene::new();
+    let red = scene.matte(Rgba::new(1.0, 0.0, 0.0, 1.0));
+    let blue = scene.matte(Rgba::new(0.0, 0.0, 1.0, 1.0));
+    scene.put(red, 0, 0.0, 2.0);
+    scene.put(blue, 0, 2.0, 4.0);
+    let sid = scene.seq;
+    let (p, tr) = scene
+        .p
+        .transact(|p| {
+            add_transition(
+                p,
+                sid,
+                TrackRef::video(0),
+                SeqTime::from_seconds(2.0),
+                "op.tr.page_turn",
+                Dur::from_seconds(1.0),
+                None,
+                EditOptions::default(),
+            )
+        })
+        .unwrap();
+    scene.p = p;
+    for direction in 0..4 {
+        Arc::make_mut(&mut scene.p.sequence_mut(sid).unwrap().video[0])
+            .transitions
+            .iter_mut()
+            .find(|t| t.id == tr)
+            .unwrap()
+            .params
+            .iter_mut()
+            .find(|p| p.key == "direction")
+            .unwrap()
+            .value = Value::Choice(direction);
+        let first = scene.render(&mut r, 1.5);
+        let last = scene.render(&mut r, 2.5);
+        assert!(near(at(&first, 32, 18), [255, 0, 0, 255], 2));
+        assert!(near(at(&last, 32, 18), [0, 0, 255, 255], 2));
+        assert_ne!(scene.render(&mut r, 1.75), scene.render(&mut r, 2.25));
+    }
 }
 
 #[test]
@@ -334,7 +471,7 @@ fn graphics_and_delivery() {
         components: {
             let mut v = default_components(EffectKind::VideoFixed, &mut ids);
             v.push(text);
-            v
+            v.into()
         },
         gain_db: 0.0,
         scale_to_frame: false,
@@ -362,7 +499,9 @@ fn graphics_and_delivery() {
         scale: 1.0,
         source: &NoFrames,
     });
-    let planes = r.delivery_planes(&frame, op_media::VideoInput::Yuv420p);
+    let planes = r
+        .delivery_planes(&frame, op_media::VideoInput::Yuv420p)
+        .expect("8-bit plane readback");
     assert_eq!(planes.len(), 3);
     assert_eq!(planes[0].len(), 64 * 36);
     assert_eq!(planes[1].len(), 32 * 18);
@@ -381,7 +520,9 @@ fn graphics_and_delivery() {
         "Cr {}",
         planes[2][10]
     );
-    let p10 = r.delivery_planes(&frame, op_media::VideoInput::Yuv422p10);
+    let p10 = r
+        .delivery_planes(&frame, op_media::VideoInput::Yuv422p10)
+        .expect("10-bit plane readback");
     let y10 = u16::from_le_bytes([p10[0][0], p10[0][1]]);
     assert!((y10 as i32 - 250).abs() <= 2, "Y10 {y10}");
 
@@ -391,7 +532,7 @@ fn graphics_and_delivery() {
         r.scope(&frame, kind, &target, 1.0);
     }
     r.submit();
-    let scope_px = r.read_texture(&target, 4);
+    let scope_px = r.read_texture(&target, 4).expect("scope readback");
     assert_eq!(scope_px.len(), 256 * 128 * 4);
     r.recycle(frame);
 }
@@ -512,7 +653,7 @@ fn semi_planar_frames_convert_like_the_reference() {
             scale: 1.0,
             source: &src,
         });
-        let px = r.rgba8(&out);
+        let px = r.rgba8(&out).expect("frame readback");
         r.recycle(out);
         let i = ((h / 2) * w + w / 2) as usize * 4;
         for k in 0..3 {
