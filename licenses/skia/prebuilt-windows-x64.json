@@ -10,7 +10,7 @@
   "version": "0.153.3",
   "rust_skia_revision": "b7f043e0b1e2a850e702245de811f01df1f6b0ff",
   "skia_dependency_tag": "m153-0.101.2",
-  "license_sha256": "138ca93b23032de20f9ec3838e3bec7120bbb16a791b2bf02e4ba469e0bab558",
+  "license_sha256": "5f787c1dee3c56547f09ccc2906ab5f5293c4d8dd6c8654e573216c38e908dbd",
   "verified_static_libraries": [
     {
       "name": "skia-bindings.lib",

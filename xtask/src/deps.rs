@@ -194,8 +194,14 @@ pub fn runtime_libraries() -> Result<Vec<PathBuf>> {
         for e in fs::read_dir(ff.join("lib"))? {
             let p = e?.path();
             let name = p.file_name().unwrap().to_string_lossy().into_owned();
-            // the versioned sonames (libavcodec.so.62), not the development symlinks
-            if name.contains(".so.") && name.matches('.').count() == 2 {
+            // the versioned libraries (libavcodec.so.62, libavcodec.62.dylib), not the
+            // development symlinks
+            let versioned = if cfg!(target_os = "macos") {
+                name.ends_with(".dylib")
+            } else {
+                name.contains(".so.")
+            };
+            if versioned && name.matches('.').count() == 2 {
                 out.push(p);
             }
         }
