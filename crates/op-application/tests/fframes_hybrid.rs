@@ -7,6 +7,20 @@ use op_render::{Gpu, NoFrames, Renderer, Request};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+/// The hybrid paths render through the software adapter. Metal has no software adapter, so on
+/// macOS (where only the real GPU exists) these checks are skipped; Windows has WARP and Linux
+/// llvmpipe, where they always run.
+fn software_renderer() -> bool {
+    match op_render::Gpu::software() {
+        Ok(_) => true,
+        Err(e) if cfg!(target_os = "macos") => {
+            eprintln!("no software adapter on this Mac, skipped: {e}");
+            false
+        }
+        Err(_) => true,
+    }
+}
+
 fn project() -> (Project, SequenceId) {
     let mut p = Project::new("Floating compatibility");
     let (sid, _) = p.add_sequence(
@@ -284,6 +298,9 @@ fn interpreted_high_depth_rotated_hdr_sources_match_native_conversion() {
 
 #[test]
 fn hybrid_exports_every_codec_and_reports_the_actual_processors() {
+    if !software_renderer() {
+        return;
+    }
     use op_application::{ExportJob, ExportSettings, MediaService};
     use std::time::{Duration, Instant};
     let engines = engines();
@@ -523,6 +540,9 @@ fn separate_tracks_all_blends_and_linear_checkpoints_match_native() {
 
 #[test]
 fn animated_graphics_adjustment_stacks_and_async_preview_keep_their_pixels() {
+    if !software_renderer() {
+        return;
+    }
     use op_application::media::PreviewFrames;
     use op_application::render_preview::{FframesPreview, PreviewRequest};
     use std::time::{Duration, Instant};
