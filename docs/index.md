@@ -1,6 +1,6 @@
 # Technical documentation
 
-OpenPremier 0.10.0 is an early alpha with builds for Windows, Linux and macOS. This documentation records the plan, the implemented architecture and which builds and behavior have actually been tested.
+OpenPremier 0.10.1 is an early alpha with builds for Windows, Linux and macOS. This documentation records the plan, the implemented architecture and which builds and behavior have actually been tested.
 
 ## Project documentation
 
@@ -24,6 +24,7 @@ OpenPremier 0.10.0 is an early alpha with builds for Windows, Linux and macOS. T
 | [assistants.md](assistants.md) | Editing with AI assistants (Model Context Protocol) |
 | [silence.md](silence.md) | Cutting silences, filler words and repeated takes |
 | [color-nodes.md](color-nodes.md) | The node-based color system: correctors, mixers, qualifier, windows and keys |
+| [updates.md](updates.md) | Updating from inside the program: check, download, checksum and install |
 | [performance.md](performance.md) | Heavy-load benchmark results and what they mean for smaller computers |
 | [plugin-api-spec.md](plugin-api-spec.md) | OpenFX and WebAssembly extension design |
 

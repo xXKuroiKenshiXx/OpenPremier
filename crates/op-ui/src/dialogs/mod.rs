@@ -29,6 +29,7 @@ mod sequence;
 mod shortcuts;
 mod silence;
 mod silence_batch;
+pub mod update;
 
 use export::*;
 use media::*;
@@ -100,6 +101,7 @@ pub struct CaptionForm {
 }
 
 pub enum Dialog {
+    Update(Box<update::UpdateForm>),
     PremiereVersion(Box<prproj_version::VersionForm>),
     Unsaved(Then),
     /// Closing the program while an export runs.
@@ -305,6 +307,7 @@ impl Dialog {
 
 /// Shows the open dialogs. Each returns whether it stays open.
 pub fn show(s: &mut State, ctx: &egui::Context) {
+    update::poll(s);
     let list = std::mem::take(&mut s.dialogs);
     let mut keep = Vec::new();
     for mut d in list {
@@ -1303,6 +1306,7 @@ fn dialog(s: &mut State, ctx: &egui::Context, d: &mut Dialog) -> bool {
             name,
             always,
         } => paste_dialog(s, ctx, *id, folder, name, always),
+        Dialog::Update(f) => update::update_dialog(s, ctx, f),
         Dialog::About => {
             let mut open = true;
             window(ctx, t("About OpenPremier")).open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {

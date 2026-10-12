@@ -24,7 +24,7 @@ no contiene código ni recursos de Adobe y no está afiliado con Adobe Inc.
 
 ## Estado actual
 
-La versión `0.10.0` es una versión alfa funcional para Windows, Linux y macOS. La aplicación ya se puede
+La versión `0.10.1` es una versión alfa funcional para Windows, Linux y macOS. La aplicación ya se puede
 compilar, abrir, probar y empaquetar, pero todavía no está lista para sustituir un editor comercial
 en todos los trabajos de producción.
 
@@ -66,6 +66,8 @@ en todos los trabajos de producción.
 - El panel Efectos muestra una imagen de cada efecto, animada al pasar el cursor o siempre
   (según el perfil de rendimiento), y Clip › Quitar silencios de archivos corta muchos archivos
   por lotes.
+- Se actualiza solo: avisa cuando hay una versión nueva, la descarga, comprueba su SHA-256 y
+  la instala al cerrar (Ayuda › Buscar actualizaciones). Ver [docs/updates.md](docs/updates.md).
 - Vincular medios: si los archivos se movieron, se ubican a mano o se buscan solos en el equipo.
 - Asistentes de IA: Claude Code, Codex u otro cliente MCP pueden editar con OpenPremier
   (`OpenPremier --mcp`), incluso en vivo sobre el proyecto abierto. Ver

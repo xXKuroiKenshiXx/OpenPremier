@@ -2,6 +2,12 @@
 
 OpenPremier follows semantic versioning. User-visible changes are grouped by release.
 
+## 0.10.1 - 2026-10-12
+
+### Added
+
+- Updates from inside the program. On start (Preferences > Updates, on by default) and with Help > Check for Updates..., OpenPremier asks GitHub for the newest release, shows what is new and offers Download and Install, What's New, Later or Skip This Version. The package for the system is downloaded in the background and checked against the release's SHA256SUMS.txt; it is installed when the program closes (after the usual offer to save): on Windows the new version replaces the program folder once the old process has ended and starts itself, the Linux AppImage is replaced in place and restarted, and on macOS the downloaded disk image is opened. Copies not installed from a release package only link to the releases page. See docs/updates.md.
+
 ## 0.10.0 - 2026-10-12
 
 - Timelines with thousands of cuts no longer run out of memory or slow down. Clips cut from one

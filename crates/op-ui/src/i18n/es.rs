@@ -2650,4 +2650,59 @@ pub static ES: &[(&str, &str)] = &[
         "fframes supports frames up to 33,177,600 pixels",
         "fframes admite cuadros de hasta 33.177.600 píxeles",
     ),
+    ("Software Update", "Actualización de software"),
+    (
+        "Looking for a newer version...",
+        "Buscando una versión nueva...",
+    ),
+    (
+        "OpenPremier {} is the newest version.",
+        "OpenPremier {} es la versión más reciente.",
+    ),
+    (
+        "Could not look for updates.",
+        "No se pudieron buscar actualizaciones.",
+    ),
+    ("Open the Releases Page", "Abrir la página de versiones"),
+    (
+        "OpenPremier {} is available",
+        "Está disponible OpenPremier {}",
+    ),
+    ("You have version {}.", "Tenés la versión {}."),
+    (
+        "This copy cannot update itself; download the new version from the releases page.",
+        "Esta copia no puede actualizarse sola; descargá la versión nueva desde la página de versiones.",
+    ),
+    ("Download and Install", "Descargar e instalar"),
+    ("What's New", "Novedades"),
+    ("Later", "Más tarde"),
+    ("Skip This Version", "Omitir esta versión"),
+    (
+        "Downloading the new version...",
+        "Descargando la versión nueva...",
+    ),
+    (
+        "You can keep working while it downloads.",
+        "Podés seguir trabajando mientras se descarga.",
+    ),
+    (
+        "OpenPremier {} is ready to install.",
+        "OpenPremier {} está listo para instalarse.",
+    ),
+    (
+        "When OpenPremier closes, the downloaded disk image opens: drag OpenPremier to Applications.",
+        "Al cerrar OpenPremier se abre la imagen de disco descargada: arrastrá OpenPremier a Aplicaciones.",
+    ),
+    (
+        "It is installed when OpenPremier closes, and the new version opens by itself. You are asked to save your work first.",
+        "Se instala al cerrar OpenPremier y la versión nueva se abre sola. Antes se te pide guardar tu trabajo.",
+    ),
+    ("Restart and Update", "Reiniciar y actualizar"),
+    ("When I Close OpenPremier", "Cuando cierre OpenPremier"),
+    ("Check for Updates...", "Buscar actualizaciones..."),
+    ("Updates", "Actualizaciones"),
+    (
+        "Look for a newer version when OpenPremier starts",
+        "Buscar una versión nueva al iniciar OpenPremier",
+    ),
 ];

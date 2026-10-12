@@ -181,6 +181,29 @@ fn main() {
         }
         return;
     }
+    if args
+        .first()
+        .is_some_and(|a| a == op_application::update::FINISH_ARG)
+    {
+        // started from a downloaded package to replace the installed program (Windows)
+        init_logging(&op_application::Dirs::system());
+        let Some(installed) = args.get(1).map(PathBuf::from) else {
+            return;
+        };
+        log::info!("finishing the update of {}", installed.display());
+        if let Err(e) = op_application::update::finish_windows(
+            &installed,
+            args.get(2).and_then(|p| p.parse().ok()),
+        ) {
+            log::error!("update not installed: {e}");
+            // the previous version is still in place: start it again
+            let _ = std::process::Command::new(installed.join("OpenPremier.exe"))
+                .current_dir(&installed)
+                .spawn();
+        }
+        log::logger().flush();
+        return;
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print!("{USAGE}");
         return;

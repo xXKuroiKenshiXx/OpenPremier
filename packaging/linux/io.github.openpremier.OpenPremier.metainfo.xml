@@ -29,6 +29,14 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.10.1" date="2026-10-12">
+      <description>
+        <p>
+          Updates from inside the program: it checks for a newer version, downloads it, verifies
+          its checksum and installs it when it closes.
+        </p>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-10-12">
       <description>
         <p>

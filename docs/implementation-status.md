@@ -6,7 +6,7 @@ metadata and Windows Vulkan/DX12/WARP plus Linux WSL acceptance. See
 block on interactive QA and remaining platform/legal requirements.
 
 **Snapshot:** 2026-10-07<br>
-**Application version:** 0.10.0 technical alpha<br>
+**Application version:** 0.10.1 technical alpha<br>
 **Primary language/UI:** Rust 2024 / egui 0.36<br>
 **Compatibility validation:** in progress; full parity has not been established
 

@@ -208,6 +208,9 @@ pub(super) fn preferences(s: &mut State, ctx: &egui::Context, scale: &mut f32) -
                     ui.label(t("Autosaved Versions to Keep"));
                     ui.add(egui::DragValue::new(&mut p.autosave_keep).range(1..=100));
                     ui.end_row();
+                    ui.label(t("Updates"));
+                    ui.checkbox(&mut p.check_updates, t("Look for a newer version when OpenPremier starts"));
+                    ui.end_row();
                     let preview_before = (p.playback_resolution, p.paused_resolution, p.frame_cache_mb);
                     ui.label(t("Preview Render Engine"));
                     egui::ComboBox::from_id_salt("preview-engine")

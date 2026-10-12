@@ -22,6 +22,7 @@ pub mod render_engine;
 pub mod render_preview;
 pub mod session;
 pub mod silence;
+pub mod update;
 
 pub use editor::{APP_NAME, Editor, LoadedProject, Placement, Status, Transport};
 pub use export::{ExportJob, ExportSettings, PreviewImage, Progress};

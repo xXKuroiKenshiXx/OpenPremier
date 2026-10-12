@@ -96,6 +96,10 @@ pub(crate) struct State {
     pub proj: project_panel::ProjectView,
     pub fx: effects_panel::EffectsView,
     pub nodes: crate::color_nodes::NodesView,
+    /// A running update check, and whether the user asked for it.
+    pub update_check: Option<(op_application::update::Check, bool)>,
+    /// A downloaded update, installed when the program closes.
+    pub update_install: Option<op_application::update::Install>,
     pub ec: effect_controls::EcView,
     /// Captions panel: style edits go to every caption (else to the selected ones).
     pub captions_all: bool,
@@ -238,6 +242,8 @@ impl App {
             proj: project_panel::ProjectView::default(),
             fx: effects_panel::EffectsView::default(),
             nodes: Default::default(),
+            update_check: None,
+            update_install: None,
             ec: effect_controls::EcView::default(),
             captions_all: true,
             assistants: None,
@@ -275,6 +281,9 @@ impl App {
         }
         let mut dock = dock;
         dock.translations = dock_translations();
+        if s.ed.prefs.check_updates {
+            crate::dialogs::update::start_check(&mut s, false);
+        }
         Ok(App {
             dock,
             layouts: HashMap::new(),
@@ -426,6 +435,7 @@ impl App {
                 item(ui, s, "Show Log...", "op.help.log");
                 item(ui, s, "Open Log Folder", "op.help.logfolder");
                 ui.separator();
+                item(ui, s, "Check for Updates...", "op.help.updates");
                 item(ui, s, "About OpenPremier", "op.help.about");
             });
             // workspace tabs on the right, like the header of professional editors
@@ -598,6 +608,7 @@ impl State {
                 }
             }
             "op.help.about" | "cmd.help.contents" => self.dialogs.push(Dialog::About),
+            "op.help.updates" => crate::dialogs::update::start_check(self, true),
             "cmd.clip.speed" => {
                 if let Some(d) = Dialog::speed(self) {
                     self.dialogs.push(d);
@@ -1339,6 +1350,12 @@ impl eframe::App for App {
 
     fn on_exit(&mut self) {
         log::info!("closing");
+        if let Some(install) = self.s.update_install.take() {
+            match op_application::update::finish(&install) {
+                Ok(()) => log::info!("handing over to the new version"),
+                Err(e) => log::error!("update not installed: {e}"),
+            }
+        }
         self.s.ed.stop();
         for job in &self.s.ed.exports {
             if !job.finished() {

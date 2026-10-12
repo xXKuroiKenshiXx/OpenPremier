@@ -50,6 +50,10 @@ pub struct Preferences {
     pub plugins: crate::plugins::NativePlugins,
     /// UI language code ("en", "es"); empty follows the system.
     pub language: String,
+    /// Look for a newer version when the program starts.
+    pub check_updates: bool,
+    /// A version the user chose not to be told about again (empty: none).
+    pub skipped_update: String,
     pub autosave_minutes: u32,
     pub autosave_keep: usize,
     pub recent: Vec<PathBuf>,
@@ -121,6 +125,8 @@ impl Default for Preferences {
         Preferences {
             plugins: Default::default(),
             language: String::new(),
+            check_updates: true,
+            skipped_update: String::new(),
             autosave_minutes: 5,
             autosave_keep: 10,
             recent: Vec::new(),
